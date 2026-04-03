@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Tuple
 
 # ============== 配置 ==============
 FEISHU_WEBHOOK = os.getenv("FEISHU_WEBHOOK", "https://open.feishu.cn/open-apis/bot/v2/hook/8148922b-04f5-469f-994e-ae3e17d6b256")
+FEISHU_WEBHOOK = FEISHU_WEBHOOK.strip() if FEISHU_WEBHOOK else "https://open.feishu.cn/open-apis/bot/v2/hook/8148922b-04f5-469f-994e-ae3e17d6b256"
 APP_ID = "cli_a93a74737d7a5cc0"
 APP_SECRET = "ITgEfB7XN07z69JfadO06dfcPfZ5ylw6"
 
@@ -128,7 +129,14 @@ def get_pta_options_chain():
     try:
         import akshare as ak
         print("  获取PTA期权链...")
-        df = ak.option_current_em(symbol="TA")
+        # CZCE商品期权用 option_zhczce_sina
+        df = ak.option_zhczce_sina(symbol="TA")
+        if df is None or df.empty:
+            print("  ⚠️ PTA期权链为空，尝试备用接口...")
+            try:
+                df = ak.option_current_em(symbol="TA")
+            except:
+                pass
         if df is None or df.empty:
             print("  ⚠️ PTA期权链为空")
             return pd.DataFrame()
@@ -176,7 +184,7 @@ def get_realtime_price():
 def chan_theory_bi(df, config={'bi_len': 5}):
     """
     简化缠论笔识别
-    笔定义：至少5根K线，顶底之间有独立反向K线
+    笔定义：顶分型 + 底分型 + 至少5根K线
     """
     if len(df) < 10:
         return [], []
@@ -185,32 +193,22 @@ def chan_theory_bi(df, config={'bi_len': 5}):
     lows = df['low'].values
     closes = df['close'].values
     
-    # 找到所有极值点（笔的转折点）
-    peaks = []  # 顶点
-    valleys = []  # 底点
+    # 找顶分型和底分型
+    # 顶分型：中间K线高点最高，低点也最高
+    # 底分型：中间K线低点最低，高点也最低
+    peaks = []  # 顶点索引
+    valleys = []  # 底点索引
     
-    i = 0
-    while i < len(closes) - 1:
-        # 向上笔
-        if highs[i+1] > highs[i]:
-            # 向上走势，找顶点
-            peak_idx = i
-            while i < len(closes) - 1 and highs[i+1] >= highs[i]:
-                if highs[i+1] > highs[peak_idx]:
-                    peak_idx = i + 1
-                i += 1
-            if peak_idx > 0 and len(valleys) > 0 and highs[peak_idx] > highs[valleys[-1]]:
-                peaks.append(peak_idx)
-        else:
-            # 向下笔
-            valley_idx = i
-            while i < len(closes) - 1 and lows[i+1] <= lows[i]:
-                if lows[i+1] < lows[valley_idx]:
-                    valley_idx = i + 1
-                i += 1
-            if valley_idx > 0 and len(peaks) > 0 and lows[valley_idx] < highs[peaks[-1]]:
-                valleys.append(valley_idx)
-        i += 1
+    for i in range(1, len(closes) - 1):
+        # 顶分型
+        if highs[i] > highs[i-1] and highs[i] > highs[i+1] and lows[i] > lows[i-1] and lows[i] > lows[i+1]:
+            # 确认是顶
+            if len(valleys) > 0 and highs[i] > highs[valleys[-1]]:
+                peaks.append(i)
+        # 底分型
+        elif lows[i] < lows[i-1] and lows[i] < lows[i+1] and highs[i] < highs[i-1] and highs[i] < highs[i+1]:
+            if len(peaks) > 0 and lows[i] < highs[peaks[-1]]:
+                valleys.append(i)
     
     return peaks, valleys
 
