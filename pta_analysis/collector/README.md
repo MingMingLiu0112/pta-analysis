@@ -12,13 +12,24 @@
 pip install akshare requests -U
 ```
 
-## 第二步：获取Git Bash（用于推送数据到GitHub）
+## 第二步：创建配置.env文件
+
+在 `pta_collector.py` 同目录下创建一个 `config.env` 文件，内容如下：
+
+```env
+GITHUB_TOKEN=你的GitHub_TOKEN
+FEISHU_WEBHOOK=你的飞书Webhook地址
+```
+
+> GitHub Token 在 GitHub Settings → Developer settings → Personal access tokens 生成，需要repo权限。
+
+## 第三步：获取Git Bash（用于推送数据到GitHub）
 
 下载地址：https://git-scm.com/download/win
 
 安装时一路点"Next"即可。
 
-## 第三步：配置GitHub访问
+## 第四步：配置GitHub访问
 
 在命令提示符里输入：
 
@@ -27,11 +38,11 @@ git config --global user.name "你的GitHub用户名"
 git config --global user.email "你的GitHub邮箱"
 ```
 
-## 第四步：克隆数据仓库
+## 第五步：克隆数据仓库
 
 ```bash
 cd %USERPROFILE%
-git clone https://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@github.com/MingMingLiu0112/pta-data.git
+git clone https://github.com/MingMingLiu0112/pta-data.git
 cd pta-data
 mkdir data
 git add .
@@ -41,7 +52,11 @@ git push -u origin main
 
 > 注意：如果仓库不存在，先在GitHub上手动创建空的 `pta-data` 私有仓库
 
-## 第五步：运行采集脚本
+## 第六步：放入采集脚本
+
+把 `pta_collector.py` 和 `config.env` 复制到 `pta-data` 目录下。
+
+## 第七步：运行采集脚本
 
 ```bash
 cd %USERPROFILE%\pta-data
@@ -50,7 +65,7 @@ python pta_collector.py
 
 看到 "采集完成" 即成功。
 
-## 第六步：设置每日定时任务
+## 第八步：设置每日定时任务
 
 1. 打开命令提示符，输入：
 ```bash

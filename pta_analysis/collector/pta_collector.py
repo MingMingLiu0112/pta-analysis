@@ -13,18 +13,28 @@ import time
 from datetime import datetime, timedelta
 import subprocess
 
+# 加载config.env
+_config_env_path = os.path.join(os.path.dirname(__file__), "config.env")
+if os.path.exists(_config_env_path):
+    with open(_config_env_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                key, val = line.split("=", 1)
+                os.environ.setdefault(key.strip(), val.strip())
+
 # ============================================================
 # 配置区 - 请根据实际情况修改
 # ============================================================
 
 CONFIG = {
-    # GitHub配置
-    "github_token": "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",
+    # GitHub配置（请设置为环境变量，不要硬编码）
+    "github_token": os.environ.get("GITHUB_TOKEN", ""),
     "github_repo": "MingMingLiu0112/pta-data",
     "github_branch": "main",
 
     # 飞书Webhook（实时异动提醒用，平时不用）
-    "feishu_webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/8148922b-04f5-469f-994e-ae3e17d6b256",
+    "feishu_webhook": os.environ.get("FEISHU_WEBHOOK", ""),
 
     # PTA期货合约代码
     "futures_code": "TA",
