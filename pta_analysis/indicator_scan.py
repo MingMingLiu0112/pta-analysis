@@ -1,10 +1,9 @@
 """
-PTA期货 MACD/KDJ 指标扫描
-- 获取1分钟数据，聚合生成5/15/30/60分钟周期
-- 计算各周期MACD、KDJ指标
+PTA期货 MACD/KDJ 多周期指标扫描
+用于各级别背驰判断
 """
 import akshare as ak, pandas as pd, numpy as np, warnings, json, os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 warnings.filterwarnings('ignore')
 
@@ -67,22 +66,12 @@ def get_period_indicators(df_1min, period_label, period_code):
         macd_last = macd.iloc[-1]
         
         # MACD状态
-        if macd_last > 0:
-            macd_state = "多头"
-        elif macd_last < 0:
-            macd_state = "空头"
-        else:
-            macd_state = "中性"
-        
-        # DIF方向
+        macd_state = "多头" if macd_last > 0 else "空头" if macd_last < 0 else "中性"
         dif_change = "上升" if dif.iloc[-1] > dif.iloc[-2] else "下降"
         
         return {
             'period': period_label,
             'datetime': last['datetime'].strftime('%Y-%m-%d %H:%M'),
-            'open': round(float(last['open']), 0),
-            'high': round(float(last['high']), 0),
-            'low': round(float(last['low']), 0),
             'close': round(float(last['close']), 0),
             'bars': len(df),
             'macd': {
@@ -103,9 +92,7 @@ def get_period_indicators(df_1min, period_label, period_code):
 
 def scan_all_periods(symbol='TA0'):
     """扫描所有周期"""
-    print(f"获取{symbol} 1分钟原始数据...", end=' ')
     df_1min = get_1min_data(symbol, bars=800)
-    print(f"OK ({len(df_1min)}根)")
     
     periods = [
         ('1分钟', '1T'),
@@ -116,75 +103,41 @@ def scan_all_periods(symbol='TA0'):
     ]
     
     results = {}
-    print("\n" + "=" * 70)
-    print(f"PTA 各周期MACD/KDJ指标  ({datetime.now().strftime('%Y-%m-%d %H:%M')})")
-    print("=" * 70)
-    
     for label, code in periods:
-        print(f"计算 {label}...", end=' ')
         r = get_period_indicators(df_1min, label, code)
         results[label] = r
-        
-        if 'error' not in r:
-            m = r['macd']
-            k = r['kdj']
-            print(f"OK | {r['datetime']} | {r['close']:.0f} | MACD: {m['dif']:.4f}/{m['dea']:.4f}/{m['macd']:.4f} [{m['state']}] | KDJ: {k['K']:.1f}/{k['D']:.1f}/{k['J']:.1f}")
-        else:
-            print(f"失败: {r['error']}")
     
-    print("=" * 70)
     return results, df_1min
 
-def format_report(results):
-    """格式化报告"""
-    report = []
-    dt = datetime.now().strftime('%Y-%m-%d %H:%M')
-    report.append("\n" + "=" * 70)
-    report.append(f"PTA 期货 MACD/KDJ 多周期指标报告  ({dt})")
-    report.append("=" * 70)
+def get_report(symbol='TA0'):
+    """获取完整报告"""
+    results, df_1min = scan_all_periods(symbol)
+    
+    lines = []
+    lines.append("=" * 70)
+    lines.append(f"PTA MACD/KDJ 多周期指标  ({datetime.now().strftime('%Y-%m-%d %H:%M')})")
+    lines.append("=" * 70)
     
     for period in ['1分钟', '5分钟', '15分钟', '30分钟', '60分钟']:
         if period not in results or 'error' in results[period]:
             continue
-        
         r = results[period]
         m = r['macd']
         k = r['kdj']
-        
-        # MACD信号
         macd_arrow = "▲" if m['macd'] > 0 else "▼"
-        dif_arrow = "↑" if m['dif_change'] == "上升" else "↓"
-        
-        # KDJ信号
-        if k['K'] > k['D']:
-            kdj_signal = "多头"
-        elif k['K'] < k['D']:
-            kdj_signal = "空头"
-        else:
-            kdj_signal = "中性"
-        
-        report.append(f"\n【{period}】{r['datetime']}")
-        report.append(f"  价格: {r['open']:.0f} ~ {r['high']:.0f} ~ {r['low']:.0f}  当前: {r['close']:.0f}  ({r['bars']}根)")
-        report.append(f"  MACD: DIF={m['dif']:>8.4f}  DEA={m['dea']:>8.4f}  MACD={m['macd']:>8.4f} {macd_arrow} [{m['state']}] {dif_arrow}")
-        report.append(f"  KDJ:  K={k['K']:>6.2f}    D={k['D']:>6.2f}    J={k['J']:>8.2f}  [{kdj_signal}]")
+        lines.append(f"\n【{period}】{r['datetime']}  价格={r['close']:.0f}  ({r['bars']}根)")
+        lines.append(f"  MACD: DIF={m['dif']:>8.4f}  DEA={m['dea']:>8.4f}  MACD={m['macd']:>8.4f} {macd_arrow} [{m['state']}] {m['dif_change']}")
+        lines.append(f"  KDJ:  K={k['K']:>6.2f}    D={k['D']:>6.2f}    J={k['J']:>8.2f}")
     
-    report.append("\n" + "=" * 70)
-    return "\n".join(report)
-
-def save_results(results, df_1min):
-    """保存结果"""
-    # 保存JSON
-    json_path = os.path.join(os.path.dirname(__file__), 'indicator_results.json')
-    with open(json_path, 'w', encoding='utf-8') as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
-    print(f"JSON已保存: {json_path}")
-    
-    # 保存CSV
-    csv_path = os.path.join(os.path.dirname(__file__), 'pta_1min_raw.csv')
-    df_1min.to_csv(csv_path, index=False, encoding='utf-8')
-    print(f"1分钟原始数据已保存: {csv_path}")
+    lines.append("\n" + "=" * 70)
+    return "\n".join(lines), results, df_1min
 
 if __name__ == '__main__':
-    results, df_1min = scan_all_periods('TA0')
-    save_results(results, df_1min)
-    print(format_report(results))
+    report, results, df_1min = get_report()
+    print(report)
+    
+    # 保存
+    with open('indicator_results.json', 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+    df_1min.to_csv('pta_1min_raw.csv', index=False, encoding='utf-8')
+    print("\n已保存 indicator_results.json 和 pta_1min_raw.csv")
