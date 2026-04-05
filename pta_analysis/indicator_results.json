@@ -1,0 +1,39 @@
+{
+  "1分钟": {
+    "period": "1分钟",
+    "datetime": "2026-04-03 15:00",
+    "open": 6988.0,
+    "high": 6990.0,
+    "low": 6978.0,
+    "close": 6988.0,
+    "bars": 800,
+    "macd": {
+      "dif": -0.5603,
+      "dea": -3.5475,
+      "macd": 5.9745,
+      "dif_change": "上升",
+      "state": "多头"
+    },
+    "kdj": {
+      "K": 81.81,
+      "D": 62.58,
+      "J": 120.26
+    }
+  },
+  "5分钟": {
+    "period": "5分钟",
+    "error": "Invalid frequency: 5T. Failed to parse with error message: ValueError(\"Invalid frequency: T. Failed to parse with error message: KeyError('T'). Did you mean min?\")"
+  },
+  "15分钟": {
+    "period": "15分钟",
+    "error": "Invalid frequency: 15T. Failed to parse with error message: ValueError(\"Invalid frequency: T. Failed to parse with error message: KeyError('T'). Did you mean min?\")"
+  },
+  "30分钟": {
+    "period": "30分钟",
+    "error": "Invalid frequency: 30T. Failed to parse with error message: ValueError(\"Invalid frequency: T. Failed to parse with error message: KeyError('T'). Did you mean min?\")"
+  },
+  "60分钟": {
+    "period": "60分钟",
+    "error": "Invalid frequency: 60T. Failed to parse with error message: ValueError(\"Invalid frequency: T. Failed to parse with error message: KeyError('T'). Did you mean min?\")"
+  }
+}
