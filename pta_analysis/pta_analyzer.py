@@ -21,7 +21,9 @@ import json
 import os
 import sys
 import math
+import re
 from datetime import datetime, timedelta
+import pandas as pd
 
 PYTHON = "/home/admin/.pyenv/shims/python3.11"
 WORKSPACE = "/home/admin/.openclaw/workspace/codeman/pta_analysis"
@@ -492,6 +494,221 @@ def composite_signal(macro_score, tech_score, option_score):
     
     return composite, phase, phase_desc
 
+def analyze_option_wall(option_df, futures_price=7000):
+    """
+    完整期权墙分析，含多层次梯度结构
+    """
+    if option_df is None or option_df.empty:
+        return {}
+
+    import pandas as pd
+
+    # 区分C/P
+    def get_strike(code):
+        m = re.search(r'[CP](\d+)', str(code))
+        return int(m.group(1)) if m else None
+
+    def get_type(code):
+        return 'C' if 'C' in str(code) else 'P'
+
+    option_df = option_df.copy()
+    option_df['行权价'] = option_df['合约代码'].apply(get_strike)
+    option_df['类型'] = option_df['合约代码'].apply(get_type)
+
+    call = option_df[option_df['类型'] == 'C'].copy()
+    put = option_df[option_df['类型'] == 'P'].copy()
+
+    # 基本PCR
+    total_call_vol = int(call['成交量(手)'].sum())
+    total_put_vol = int(put['成交量(手)'].sum())
+    pcr_vol = round(total_put_vol / total_call_vol, 4) if total_call_vol > 0 else None
+
+    # ---- ① 短期博弈（成交量Top3）----
+    top3_vol_call = call.nlargest(3, '成交量(手)')[['合约代码', '行权价', '成交量(手)']].values.tolist()
+    top3_vol_put = put.nlargest(3, '成交量(手)')[['合约代码', '行权价', '成交量(手)']].values.tolist()
+
+    # ---- ②③ 中期防线 + 多层次梯度 ----
+    ceil_zone = call[call['行权价'] > futures_price].copy()
+    floor_zone = put[put['行权价'] < futures_price].copy()
+
+    # 多层梯度构建
+    def build_levels(zone_df, level_defs):
+        """
+        按行权价区间分层，每层返回：
+          - label: 层名称
+          - oi_total: 该层总OI
+          - top_contract: 最厚行权价合约
+          - top_oi: 最厚OI
+          - top_iv: 最厚IV
+          - strike_count: 该层合约数
+        """
+        levels = []
+        for label, lo, hi in level_defs:
+            z = zone_df[(zone_df['行权价'] >= lo) & (zone_df['行权价'] < hi)]
+            if z.empty:
+                continue
+            oi_total = int(z['持仓量'].sum())
+            top_row = z.nlargest(1, '持仓量').iloc[0]
+            levels.append({
+                'label': label,
+                'oi_total': oi_total,
+                'top_contract': str(top_row['合约代码']),
+                'top_oi': int(top_row['持仓量']),
+                'top_iv': float(top_row['隐含波动率']),
+                'strike_count': len(z),
+            })
+        return levels
+
+    ceiling_levels = build_levels(ceil_zone, [
+        ('近端压力(7000~7400)', 7000, 7400),
+        ('中端压力(7400~7800)', 7400, 7800),
+        ('远端压力(7800~)', 7800, 9999),
+    ])
+    floor_levels = build_levels(floor_zone, [
+        ('近端支撑(6500~7000)', 6500, 7000),
+        ('中端支撑(5500~6500)', 5500, 6500),
+        ('深端支撑(4000~5500)', 4000, 5500),
+    ])
+
+    # 合计
+    ceil_total_oi = int(ceil_zone['持仓量'].sum())
+    floor_total_oi = int(floor_zone['持仓量'].sum())
+    gradient_ratio = round(floor_total_oi / ceil_total_oi, 2) if ceil_total_oi > 0 else None
+
+    # ---- IV曲面 ----
+    atm_lo, atm_hi = futures_price * 0.95, futures_price * 1.05
+    near_atm_call = call[(call['行权价'] >= atm_lo) & (call['行权价'] <= atm_hi)]
+    near_atm_put = put[(put['行权价'] >= atm_lo) & (put['行权价'] <= atm_hi)]
+    call_iv_near = near_atm_call['隐含波动率'].dropna()
+    put_iv_near = near_atm_put['隐含波动率'].dropna()
+    call_iv_mean = round(call_iv_near.mean(), 1) if not call_iv_near.empty else None
+    put_iv_mean = round(put_iv_near.mean(), 1) if not put_iv_near.empty else None
+    iv_diff = round(put_iv_mean - call_iv_mean, 1) if (call_iv_mean and put_iv_mean) else None
+
+    # ---- 综合评分 ----
+    score = 0
+    signals = []
+
+    if pcr_vol:
+        if pcr_vol < 0.5:
+            signals.append(f"成交量PCR={pcr_vol:.2f}，认购资金主导，短期情绪偏多")
+            score += 1
+        elif pcr_vol < 0.8:
+            signals.append(f"成交量PCR={pcr_vol:.2f}，情绪偏多")
+            score += 0.5
+        elif pcr_vol > 1.5:
+            signals.append(f"成交量PCR={pcr_vol:.2f}，认沽资金主导，短期情绪偏空")
+            score -= 1
+        elif pcr_vol > 1.0:
+            signals.append(f"成交量PCR={pcr_vol:.2f}，情绪偏空")
+            score -= 0.5
+
+    if gradient_ratio:
+        if gradient_ratio > 2.0:
+            signals.append(f"地板合计OI({floor_total_oi:,}手)是天花板({ceil_total_oi:,}手)的{gradient_ratio}倍，防御力量极强")
+            score -= 1.5
+        elif gradient_ratio > 1.5:
+            signals.append(f"地板({floor_total_oi:,}手)>天花板({ceil_total_oi:,}手)，梯度比{gradient_ratio}，防御偏重")
+            score -= 1
+
+    if iv_diff is not None:
+        if iv_diff > 5:
+            signals.append(f"认沽IV({put_iv_mean}%)>认购IV({call_iv_mean}%)，市场为下跌付更高溢价")
+            score -= 1
+        elif iv_diff < -5:
+            signals.append(f"认购IV({call_iv_mean}%)>认沽IV({put_iv_mean}%)，市场为上涨付更高溢价")
+            score += 1
+
+    total_score = max(-4, min(4, score))
+    label = "期权偏多" if total_score >= 2 else ("期权偏空" if total_score <= -2 else "期权中性")
+    detail = "；".join(signals) if signals else "信息不足以判断"
+
+    return {
+        # 基础
+        'pcr_vol': pcr_vol,
+        'pcr_vol_display': f"{pcr_vol:.2f}" if pcr_vol else "N/A",
+
+        # ① 短期博弈
+        'short_gaming': {
+            'top3_vol_call': [[str(r[0]), int(r[1]), int(r[2])] for r in top3_vol_call],
+            'top3_vol_put': [[str(r[0]), int(r[1]), int(r[2])] for r in top3_vol_put],
+            'total_call_vol': total_call_vol,
+            'total_put_vol': total_put_vol,
+        },
+
+        # ②③ 中期防线 + 多层梯度
+        'medium_term': {
+            'ceiling_levels': ceiling_levels,
+            'floor_levels': floor_levels,
+            'ceil_total_oi': ceil_total_oi,
+            'floor_total_oi': floor_total_oi,
+            'gradient_ratio': gradient_ratio,
+        },
+
+        # IV曲面
+        'iv_surface': {
+            'call_iv_near_atm': call_iv_mean,
+            'put_iv_near_atm': put_iv_mean,
+            'iv_diff': iv_diff,
+        },
+
+        # 综合
+        'score': total_score,
+        'label': label,
+        'detail': detail,
+    }
+
+
+def format_option_report(result, futures_price=7000):
+    """
+    将分析结果格式化为易读的期权墙报告
+    返回字符串
+    """
+    if not result:
+        return "期权数据不足"
+
+    lines = []
+    mt = result.get('medium_term', {})
+    sg = result.get('short_gaming', {})
+    ivs = result.get('iv_surface', {})
+
+    # 标题
+    lines.append(f"[Option] {result['label']}({result['score']:+d})")
+
+    # ① 短期博弈
+    lines.append("  [Short-term Gaming - Vol Top3]")
+    for c in sg.get('top3_vol_call', []):
+        lines.append(f"    Call: {c[0]} vol={c[2]:,} lots")
+    for p in sg.get('top3_vol_put', []):
+        lines.append(f"    Put:  {p[0]} vol={p[2]:,} lots")
+    lines.append(f"  Vol PCR={result.get('pcr_vol_display', 'N/A')}")
+
+    # ② 多层防线（天花板）
+    lines.append("  [Ceiling Wall - Call Pressure]")
+    for lv in mt.get('ceiling_levels', []):
+        lines.append(f"    {lv['label']}: OI={lv['oi_total']:,} | thickest={lv['top_contract']}({lv['top_oi']:,} lots IV={lv['top_iv']:.1f}%)")
+
+    # ③ 多层防线（地板）
+    lines.append("  [Floor Wall - Put Support]")
+    for lv in mt.get('floor_levels', []):
+        lines.append(f"    {lv['label']}: OI={lv['oi_total']:,} | thickest={lv['top_contract']}({lv['top_oi']:,} lots IV={lv['top_iv']:.1f}%)")
+
+    # 合计
+    lines.append(f"  [Summary] Ceiling={mt.get('ceil_total_oi', 0):,} | Floor={mt.get('floor_total_oi', 0):,} | Gradient={mt.get('gradient_ratio', 'N/A')}")
+
+    # IV曲面
+    cv = ivs.get('call_iv_near_atm')
+    pv = ivs.get('put_iv_near_atm')
+    ivd = ivs.get('iv_diff')
+    lines.append(f"  [IV Surface] Call={cv}% | Put={pv}% | Diff={ivd}%")
+
+    # 信号
+    lines.append(f"  {result['detail']}")
+
+    return "\n".join(lines)
+
+
+
 
 def main():
     import akshare as ak
@@ -648,24 +865,29 @@ def main():
     print(f"\n  技术信号: {t_label}({t_score})")
     print(f"    {t_detail}")
     
-    # 期权
-    o_result = get_option_signal(opt_df)
-    if len(o_result) == 4:
-        o_score, o_label, o_detail, o_extra = o_result
-    else:
-        o_score, o_label, o_detail = o_result
-        o_extra = {}
+    # 期权（微观分析：短期博弈 + 中期防线 + 绝对区间梯度）
+    main_price = float(ta_df.nlargest(1, 'volume').iloc[0]['trade']) if ta_df is not None and not ta_df.empty else 7000
+    o_result = analyze_option_wall(
+        opt_df[opt_df['合约代码'].str.startswith('TA605')] if opt_df is not None else None,
+        futures_price=main_price
+    )
+    o_score = o_result.get('score', 0)
+    o_label = o_result.get('label', '期权数据不足')
+    o_detail = o_result.get('detail', '')
     print(f"\n  期权信号: {o_label}({o_score})")
     print(f"    {o_detail}")
-    if o_extra:
-        print(f"    PCR(持仓): {o_extra.get('pcr_oi')}")
-        print(f"    IV均值: 认购={o_extra.get('call_iv_mean')}% 认沽={o_extra.get('put_iv_mean')}%")
-        print(f"    认购期权墙: {o_extra.get('call_wall', [])[:3]}")
-        print(f"    认沽期权墙: {o_extra.get('put_wall', [])[:3]}")
-        floor = o_extra.get('best_floor', 'N/A')
-        ceiling = o_extra.get('best_ceiling', 'N/A')
-        ratio = o_extra.get('floor_ceiling_ratio')
-        print(f"    天花板: {ceiling} | 地板: {floor} | 梯度比: {ratio}")
+    if o_result:
+        sg = o_result.get('short_gaming', {})
+        mt = o_result.get('medium_term', {})
+        ivs = o_result.get('iv_surface', {})
+        print(f"    短期博弈（成交量Top3）:")
+        print(f"      认购: {[(r[0], r[2]) for r in sg.get('top_vol_call', [])]}")
+        print(f"      认沽: {[(r[0], r[2]) for r in sg.get('top_vol_put', [])]}")
+        print(f"    中期防线（期权墙）:")
+        print(f"      天花板Top3: {[(r[0], f'{r[2]:,}手') for r in mt.get('top5_ceiling', [])[:3]]}")
+        print(f"      地板Top3: {[(r[0], f'{r[2]:,}手') for r in mt.get('top5_floor', [])[:3]]}")
+        print(f"      天花板合计: {mt.get('ceil_zone_total_oi', 0):,}手 | 地板合计: {mt.get('floor_zone_total_oi', 0):,}手 | 梯度比: {mt.get('gradient_ratio', 'N/A')}")
+        print(f"    IV曲面: 购IV={ivs.get('call_iv_near_atm', '?')}% 沽IV={ivs.get('put_iv_near_atm', '?')}% (差={ivs.get('iv_diff', '?')}%)")
     
     # 综合（加入全球风险情绪权重）
     global_w = 0.3
@@ -684,56 +906,44 @@ def main():
     if news_summary:
         report['news_summary'] = news_summary
     
-    # 推送内容
-    emoji = {"偏多信号": "📈", "偏空信号": "📉", "观望": "➡️", "杀期权阶段": "🔪", "狂热顶共振": "🔥", "恐慌底共振": "🧊", "高位震荡": "🔄", "空头回补": "↗", "成本-需求博弈": "⚖", "弱平衡": "➖"}
-    e = emoji.get(c_phase, "📊")
-
-    # 定性宏观摘要（用于推送，限制字数）
-    def q(s):
-        """截取定性文本摘要，保留核心信息"""
-        return s.replace("【成本端】", "▎成本端:").replace("【供给端】", "▎供给:").replace("【需求端】", "▎需求:").replace("【资金行为】", "▎资金:").replace("【综合定性】", "▎综合:")
-
-    macro_text = macro_qual.get("synthesis", {}).get("text", "") if macro_qual else ""
-    cost_text = q(macro_qual.get("cost", {}).get("text", "")) if macro_qual else f"Brent: ${brent_price} | PX: {px_price} | PTA现货: {ta_spot}"
-    supply_text = q(macro_qual.get("supply", {}).get("text", "")) if macro_qual else ""
-    demand_text = q(macro_qual.get("demand", {}).get("text", "")) if macro_qual else ""
-    funds_text = q(macro_qual.get("funds", {}).get("text", "")) if macro_qual else ""
-
-    # 全球宏观大事件（推送摘要）
-    global_block = ""
-    if global_events:
-        sent = global_summary.get("sentiment", "") if global_summary else ""
-        geo_ev = [ev for ev in global_events if ev["type"] == "地缘风险"]
-        fed_ev = [ev for ev in global_events if "美联储" in ev["type"] or "央行" in ev["type"]]
-        top_ev = global_events[:3]
-        ev_lines = [f"  [{ev['type']}] {ev['title'][:35]}" for ev in top_ev]
-        global_block = f"""
-🌐 全球宏观: {sent}
-{chr(10).join(ev_lines)}"""
-
-    push_text = f"""📊 PTA分析报告 {now.strftime('%m/%d %H:%M')}
-
-🌍 宏观: {m_label}({m_score:+.1f})
-{cost_text[:100]}
-{supply_text[:70]}
-{demand_text[:70]}
-{funds_text[:80]}
-{macro_text[:70]}
-{global_block}
-
-📈 技术: {t_label}({t_score})
-   {t_detail}
-
-🎯 期权: {o_label}({o_score})
-   PCR持仓: {o_extra.get('pcr_oi', 'N/A')} | IV: 购{o_extra.get('call_iv_mean','?')}%/沽{o_extra.get('put_iv_mean','?')}%
-   {o_detail[:80]}
-
-{e} 综合: {c_phase}
-   {c_desc}
-
-#PTA #期权分析
-数据来源: 18qh.com | 隆众/卓创/CCF 待接入"""
+    # Push content - build as simple string concatenation
+    # Build each block as simple string
+    global_block_str = global_block or "(No data)"
+    cost_str = cost_block[:120] if cost_block else f"Brent={brent_price} PX={px_price} TA_spot={ta_spot}"
+    supply_str = supply_block[:100] + ".." if len(supply_block) > 100 else supply_block[:100]
+    demand_str = demand_block[:100] + ".." if len(demand_block) > 100 else demand_block[:100]
+    tech_str = f"Tech({t_label},{t_score:+d}): {t_detail}" if t_detail else f"Tech: {t_label}({t_score})"
     
+    # Option block from result
+    oi = o_result
+    pcr_str = oi.get("pcr_vol_display", "N/A") if oi else "N/A"
+    grad_str = str(mt.get("gradient_ratio", "N/A")) if mt.get("gradient_ratio") else "N/A"
+    call_iv_str = str(ivs.get("call_iv_near_atm", "?"))
+    put_iv_str = str(ivs.get("put_iv_near_atm", "?"))
+    iv_diff_str = str(ivs.get("iv_diff", "?"))
+    
+    option_summary = f"Option({o_label},{o_score:+d}): PCR={pcr_str} Grad={grad_str} IV_Call={call_iv_str}% IV_Put={put_iv_str}% Diff={iv_diff_str}%"
+    option_detail = o_detail if o_detail else ""
+    
+    summary_str = f"{e} Summary: {c_phase}({c_score:+d}): {c_desc}"
+    
+    lines = [
+        f"PTA Analysis {now.strftime('%Y-%m-%d %H:%M')}",
+        "=" * 40,
+        f"[1] GLOBAL: {global_block_str}",
+        f"[2] INDUSTRY: {cost_str}",
+        f"  {supply_str}",
+        f"  {demand_str}",
+        f"  {funds_block[:100]}",
+        f"[3] TECH: {tech_str}",
+        f"[4] OPTION: {option_summary}",
+        f"  {option_detail}",
+        "=" * 40,
+        f"[SUMMARY] {summary_str}",
+        "#PTA #Options | Sources: 18qh.com + PhoenixFinance",
+    ]
+    push_text = "\n".join(lines)
+
     # 推送飞书
     webhook = FEISHU_WEBHOOK
     if webhook:
