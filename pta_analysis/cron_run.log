@@ -17,3 +17,11 @@
 {"code":9499,"msg":"Bad Request","data":{}}[Sun Apr  5 06:00:01 AM CST 2026] 报告已发送
 {"code":9499,"msg":"Bad Request","data":{}}[Sun Apr  5 08:00:01 AM CST 2026] 报告已发送
 {"code":9499,"msg":"Bad Request","data":{}}[Sun Apr  5 10:00:01 AM CST 2026] 报告已发送
+{"code":9499,"msg":"Bad Request","data":{}}[Sun Apr  5 02:00:01 PM CST 2026] 报告已发送
+{"code":9499,"msg":"Bad Request","data":{}}[Sun Apr  5 04:00:01 PM CST 2026] 报告已发送
+{"code":9499,"msg":"Bad Request","data":{}}[Sun Apr  5 06:00:01 PM CST 2026] 报告已发送
+{"code":9499,"msg":"Bad Request","data":{}}[Sun Apr  5 08:00:01 PM CST 2026] 报告已发送
+{"code":9499,"msg":"Bad Request","data":{}}[Sun Apr  5 10:00:02 PM CST 2026] 报告已发送
+/bin/sh: /home/admin/.openclaw/workspace/codeman/pta_analysis/cron_status.sh: No such file or directory
+/bin/sh: /home/admin/.openclaw/workspace/codeman/pta_analysis/cron_status.sh: No such file or directory
+/bin/sh: /home/admin/.openclaw/workspace/codeman/pta_analysis/cron_status.sh: No such file or directory

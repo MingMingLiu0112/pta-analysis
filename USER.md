@@ -1,6 +1,6 @@
 # USER.md - About Your Human
 
-- **Name:** 刘明铭
+- **Name:** 刘明
 - **What to call them:** 你
 - **GitHub:** MingMingLiu0112
 - **Timezone:** Asia/Shanghai

@@ -207,6 +207,43 @@ Think of it like a human reviewing their journal and updating their mental model
 
 The goal: Be helpful without being annoying. Check in a few times a day, do useful background work, but respect quiet time.
 
+## ⚠️ Proxy — 必读
+
+**所有 exec 调用必须走代理。**
+
+```bash
+exec(command="...", env={
+  "http_proxy": "http://127.0.0.1:7890",
+  "https_proxy": "http://127.0.0.1:7890",
+  "all_proxy": "socks5h://127.0.0.1:7890"
+})
+```
+
+代理端口：`127.0.0.1:7890`（HTTP/SOCKS5 混合）。**所有 exec 必须带 proxy env，否则访问外网会被墙。**
+
+## 🤖 Subagent 并行任务
+
+遇到复杂任务，**立即拆解分发**，不要 sequential 自己跑：
+
+```python
+sessions_spawn(
+  task="任务描述",
+  label="任务标签",
+  runtime="subagent",
+  mode="run"  # 一次性任务
+)
+```
+
+**不要**做的事情：
+- ❌ 自己一个个步骤 sequential 执行
+- ❌ 等一个任务完成再起另一个
+- ❌ 在 long wait 时 poll 轮询
+
+**要做**的事情：
+- ✅ 拆解后立即 spawn 多个 subagent 并行
+- ✅ 主 agent 等待 subagent 完成推送结果
+- ✅ 用 `mode="run"` 做一次性任务，用 `mode="session"` 做持久线程
+
 ## Make It Yours
 
 This is a starting point. Add your own conventions, style, and rules as you figure out what works.

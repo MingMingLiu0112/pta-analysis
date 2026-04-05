@@ -2,6 +2,20 @@
 
 Skills define _how_ tools work. This file is for _your_ specifics — the stuff that's unique to your setup.
 
+## ⚠️ Proxy — 必读
+
+**所有 exec 调用必须走代理，否则访问外网会被墙。**
+
+```bash
+env={
+  "http_proxy": "http://127.0.0.1:7890",
+  "https_proxy": "http://127.0.0.1:7890",
+  "all_proxy": "socks5h://127.0.0.1:7890"
+}
+```
+
+代理端口：`127.0.0.1:7890`（HTTP/SOCKS5 混合）
+
 ## What Goes Here
 
 Things like:
