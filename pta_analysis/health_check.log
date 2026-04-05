@@ -1,0 +1,13 @@
+[2026-04-05 09:07] === PTA数据源健康检查 ===
+[2026-04-05 09:08] futures_zh_realtime(PTA): OK:12合约,主力:TA2605:6988.0
+[2026-04-05 09:08] option_hist_czce(PTA): /home/admin/.pyenv/versions/3.11.9/lib/python3.11/site-packages/akshare/option/option_commodity.py:205: UserWarning: 20260404非交易日
+  warnings.warn("{}非交易日".format(day.strftime("%Y%m%d")))
+EMPTY:20260404
+OK:484行:20260403
+[2026-04-05 09:08] futures_spot_price(TA/PX): /home/admin/.pyenv/versions/3.11.9/lib/python3.11/site-packages/akshare/futures/futures_basis.py:107: UserWarning: 20260404非交易日
+  warnings.warn(f"{date.strftime('%Y%m%d')}非交易日")
+OK:TA=6771.43 PX=9700.0 (20260403)
+[2026-04-05 09:08] futures_global_spot_em(Brent):   0%|          | 0/31 [00:00<?, ?it/s]  6%|▋         | 2/31 [00:00<00:03,  7.74it/s] 13%|█▎        | 4/31 [00:00<00:02, 10.70it/s] 19%|█▉        | 6/31 [00:00<00:01, 12.57it/s] 26%|██▌       | 8/31 [00:00<00:01, 13.59it/s] 32%|███▏      | 10/31 [00:00<00:01, 13.95it/s] 39%|███▊      | 12/31 [00:00<00:01, 13.87it/s] 45%|████▌     | 14/31 [00:01<00:01, 14.69it/s] 52%|█████▏    | 16/31 [00:01<00:00, 15.05it/s] 58%|█████▊    | 18/31 [00:01<00:01, 12.76it/s] 65%|██████▍   | 20/31 [00:01<00:00, 12.48it/s] 71%|███████   | 22/31 [00:01<00:00, 13.23it/s] 77%|███████▋  | 24/31 [00:01<00:00, 13.86it/s] 84%|████████▍ | 26/31 [00:01<00:00, 14.74it/s] 90%|█████████ | 28/31 [00:02<00:00, 15.37it/s] 97%|█████████▋| 30/31 [00:02<00:00, 15.47it/s]                                               OK:$72.75
+[2026-04-05 09:08] option_current_em(东财): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end close  ← 已知故障
+[2026-04-05 09:08] === 检查完成 ===
+
