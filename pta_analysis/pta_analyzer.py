@@ -329,9 +329,9 @@ def get_option_signal(option_df):
     if option_df is None or option_df.empty:
         return 0, "期权数据不足", ""
     
-    # 认购 vs 认沽
-    call = option_df[option_df['DELTA'] > 0.5].copy()
-    put = option_df[option_df['DELTA'] < 0.5].copy()
+    # 认购 vs 认沽（用合约代码中的C/P标识，不用DELTA，因为深度虚值期权的DELTA可能不准确）
+    call = option_df[option_df['合约代码'].str.contains('C')].copy()
+    put = option_df[option_df['合约代码'].str.contains('P')].copy()
     
     if call.empty or put.empty:
         return 0, "期权数据不足", ""
@@ -345,17 +345,61 @@ def get_option_signal(option_df):
     pcr_oi = put_oi / call_oi if call_oi > 0 else None
     pcr_vol = put_vol / call_vol if call_vol > 0 else None
     
-    # IV统计
-    call_iv = call['隐含波动率'].dropna()
-    put_iv = put['隐含波动率'].dropna()
-    
-    # 期权墙: 持仓量最大的行权价
-    call_wall = call.nlargest(3, '持仓量')[['合约代码', '持仓量', '隐含波动率']].values.tolist()
-    put_wall = put.nlargest(3, '持仓量')[['合约代码', '持仓量', '隐含波动率']].values.tolist()
-    
+    # IV统计（排除深度虚值合约的极端IV，保留DELTA在0.1~0.9之间）
+    call_iv = call[(call['DELTA'] >= 0.1) & (call['DELTA'] <= 0.9)]['隐含波动率'].dropna()
+    put_iv = put[(put['DELTA'] >= -0.9) & (put['DELTA'] <= -0.1)]['隐含波动率'].dropna()
+
     score = 0
     signals = []
     
+    # 期权墙: 持仓量最大的行权价（原始）
+    call_wall_raw = call.nlargest(5, '持仓量')[['合约代码', '持仓量', '隐含波动率']].values.tolist()
+    put_wall_raw = put.nlargest(5, '持仓量')[['合约代码', '持仓量', '隐含波动率']].values.tolist()
+
+    # 期权墙梯度分析（提取行权价）
+    import re as _re
+    def get_strike(code):
+        m = _re.search(r'[CP](\d+)', str(code))
+        return int(m.group(1)) if m else None
+
+    call_walls = [(get_strike(w[0]), int(w[1]), float(w[2]) if w[2] else None) for w in call_wall_raw if get_strike(w[0])]
+    put_walls = [(get_strike(w[0]), int(w[1]), float(w[2]) if w[2] else None) for w in put_wall_raw if get_strike(w[0])]
+
+    # 天花板 = 认购侧OI最大的行权价（通常在当前价格上方）
+    # 地板 = 认沽侧OI最大的行权价（通常在当前价格下方）
+    best_call_wall = max(call_walls, key=lambda x: x[1]) if call_walls else None
+    best_put_wall = max(put_walls, key=lambda x: x[1]) if put_walls else None
+
+    # 梯度区间分析（天花板区间 >6800，地板区间 <6200）
+    floor_zone_oi = sum(w[1] for w in put_walls if w[0] and 4000 <= w[0] <= 6200)
+    ceiling_zone_oi = sum(w[1] for w in call_walls if w[0] and 6800 <= w[0] <= 9000)
+
+    # 预设默认值
+    floor_strike = ceiling_strike = floor_oi = ceiling_oi = ratio = None
+
+    if best_put_wall and best_call_wall:
+        floor_strike = best_put_wall[0]
+        ceiling_strike = best_call_wall[0]
+        floor_oi = best_put_wall[1]
+        ceiling_oi = best_call_wall[1]
+        ratio = floor_oi / ceiling_oi if ceiling_oi > 0 else None
+
+        if ratio and ratio > 1.5:
+            signals.append(f"期权墙梯度：地板P{floor_strike}({floor_oi}手)>天花板C{ceiling_strike}({ceiling_oi}手) → 防御偏重")
+            score -= 0.5
+        elif ratio and ratio < 0.7:
+            signals.append(f"期权墙梯度：天花板C{ceiling_strike}({ceiling_oi}手)>地板P{floor_strike}({floor_oi}手) → 进攻偏重")
+            score += 0.5
+
+    # 地板区间 vs 天花板区间 OI 密度对比
+    if floor_zone_oi and ceiling_zone_oi:
+        if floor_zone_oi > ceiling_zone_oi * 1.3:
+            signals.append(f"地板区间OI({floor_zone_oi}手)>天花板区间({ceiling_zone_oi}手) → 下方防线强")
+            score -= 0.5
+        elif ceiling_zone_oi > floor_zone_oi * 1.3:
+            signals.append(f"天花板区间OI({ceiling_zone_oi}手)>地板区间({floor_zone_oi}手) → 上方压力强")
+            score += 0.5
+
     # PCR判断(基于持仓PCR)
     if pcr_oi:
         if pcr_oi > 3.0:
@@ -381,17 +425,9 @@ def get_option_signal(option_df):
             score += 1
         
         # IV极端值
-        if put_iv.max() > 35:
-            signals.append(f"极端高IV认沽({put_iv.max():.1f}%)")
+        if not put_iv.empty and put_iv.max() > 35:
+            signals.append(f"极端高认沽IV({put_iv.max():.1f}%)→市场恐慌定价")
             score -= 1
-    
-    # 期权墙梯度(行权价间距密度)
-    # 简化: 认沽期权墙如果在虚值程度较深处,可能意味着支撑
-    if put_wall:
-        deep_otm_puts = [w for w in put_wall if w[2] and w[2] < 20]  # IV<20%的虚值认沽
-        if deep_otm_puts:
-            signals.append(f"深度虚值认沽期权墙({len(deep_otm_puts)}个)")
-            score -= 0.5  # 虚值认沽堆叠可能是空头力量
     
     total_score = max(-3, min(3, score))
     # 分数为正 → 市场偏多/乐观 (认购强); 分数为负 → 机构对冲/偏空 (认沽强)
@@ -406,12 +442,16 @@ def get_option_signal(option_df):
     
     # 额外返回PCR和IV差供综合判断
     extra = {
-        'pcr_oi': round(pcr_oi, 4) if pcr_oi else None,
         'pcr_vol': round(pcr_vol, 4) if pcr_vol else None,
         'call_iv_mean': round(call_iv.mean(), 2) if not call_iv.empty else None,
         'put_iv_mean': round(put_iv.mean(), 2) if not put_iv.empty else None,
-        'call_wall': [[str(w[0]), int(w[1]), float(w[2]) if w[2] else None] for w in call_wall],
-        'put_wall': [[str(w[0]), int(w[1]), float(w[2]) if w[2] else None] for w in put_wall],
+        'call_wall': [[f"C{w[0]}", w[1], w[2]] for w in call_walls],
+        'put_wall': [[f"P{w[0]}", w[1], w[2]] for w in put_walls],
+        'best_floor': f"P{floor_strike}({floor_oi}手)" if floor_strike else None,
+        'best_ceiling': f"C{ceiling_strike}({ceiling_oi}手)" if ceiling_strike else None,
+        'floor_zone_oi': floor_zone_oi,
+        'ceiling_zone_oi': ceiling_zone_oi,
+        'floor_ceiling_ratio': round(ratio, 2) if ratio else None,
     }
     
     return total_score, label, detail, extra
@@ -620,8 +660,12 @@ def main():
     if o_extra:
         print(f"    PCR(持仓): {o_extra.get('pcr_oi')}")
         print(f"    IV均值: 认购={o_extra.get('call_iv_mean')}% 认沽={o_extra.get('put_iv_mean')}%")
-        print(f"    认购期权墙: {o_extra.get('call_wall', [])[:2]}")
-        print(f"    认沽期权墙: {o_extra.get('put_wall', [])[:2]}")
+        print(f"    认购期权墙: {o_extra.get('call_wall', [])[:3]}")
+        print(f"    认沽期权墙: {o_extra.get('put_wall', [])[:3]}")
+        floor = o_extra.get('best_floor', 'N/A')
+        ceiling = o_extra.get('best_ceiling', 'N/A')
+        ratio = o_extra.get('floor_ceiling_ratio')
+        print(f"    天花板: {ceiling} | 地板: {floor} | 梯度比: {ratio}")
     
     # 综合（加入全球风险情绪权重）
     global_w = 0.3
