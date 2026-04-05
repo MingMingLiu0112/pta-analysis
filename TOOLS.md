@@ -38,3 +38,26 @@ Skills are shared. Your setup is yours. Keeping them apart means you can update 
 ---
 
 Add whatever helps you do your job. This is your cheat sheet.
+
+## 天勤量化TqSdk账户
+
+### TqKq快期模拟账户
+```python
+from tqsdk import TqApi, TqAuth, TqKq
+
+api = TqApi(TqKq(), auth=TqAuth('mingmingliu', 'Liuzhaoning2025'))
+```
+
+### 获取数据示例
+```python
+# 获取K线
+klines = api.get_kline_serial('KQ.m@CZCE.TA', 86400, data_length=8000)
+
+# 获取行情
+quote = api.get_quote('KQ.m@CZCE.TA')
+
+# 等待数据更新
+while True:
+    api.wait_update()
+    print(quote.last_price)
+```
