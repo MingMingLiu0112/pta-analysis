@@ -29,6 +29,11 @@ WORKSPACE = "/home/admin/.openclaw/workspace/codeman/pta_analysis"
 # 飞书Webhook（硬编码，从MEMORY.md同步）
 FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/8148922b-04f5-469f-994e-ae3e17d6b256"
 
+# 宏观新闻模块路径
+import sys as _sys
+_sys.path.insert(0, WORKSPACE)
+import macro_news
+
 # ===================== 成本计算 =====================
 BRENT_TO_PX = 8.5   # 布伦特美元→PX美元的系数(简化估算)
 PX_TO_PTA = 0.655   # PX→PTA加工系数(约655kg/吨)
@@ -50,59 +55,199 @@ def calc_pta_cost(brent_usd, px_cny):
     pta_high = px_cny * PX_TO_PTA + TA_PROCESS_MARGIN + 200
     return pta_low, pta_high
 
-def get_macro_signal(brent_price, px_price, pta_spot, pta_cost_low, pta_cost_high):
+def generate_macro_qualitative(brent_price, px_price, pta_spot, pta_cost_low, pta_cost_high, news_summary):
     """
-    宏观基本面信号
-    return: score(-3~+3), label, detail
+    基于充分信息的宏观定性分析
+    返回: (score, label, detail_dict)
+    detail_dict 包含各维度定性描述
     """
+    result = {
+        "cost": {},    # 成本端
+        "supply": {},  # 供给端
+        "demand": {},  # 需求端
+        "funds": {},   # 资金行为
+        "synthesis": {}, # 综合定性
+    }
+
+    # ---- 1. 成本端定性 ----
     if not all([brent_price, px_price, pta_spot, pta_cost_low]):
-        return 0, "数据不足", ""
-    
-    # 布伦特趋势
+        result["cost"] = {"text": "数据不足，无法判断", "level": "未知"}
+        return 0, "数据不足", result
+
+    mid_cost = (pta_cost_low + pta_cost_high) / 2
+    deviation_pct = (pta_spot - mid_cost) / mid_cost * 100
+
+    if pta_spot < pta_cost_low:
+        cost_text = f"PTA现货{pta_spot:.0f}元跌破成本区间下限({pta_cost_low:.0f})，加工费压缩至盈亏平衡以下"
+        cost_level = "成本支撑强"
+        cost_score = 2
+    elif pta_spot > pta_cost_high + 300:
+        cost_text = f"PTA现货{pta_spot:.0f}元明显高于成本区间上限({pta_cost_high:.0f})，利润良好"
+        cost_level = "利润良好"
+        cost_score = -2
+    elif deviation_pct < 2:
+        cost_text = f"PTA现货{pta_spot:.0f}元在成本区间({pta_cost_low:.0f}~{pta_cost_high:.0f})内，偏离中值{deviation_pct:.1f}%，成本支撑中性"
+        cost_level = "成本支撑中性"
+        cost_score = 0
+    else:
+        cost_text = f"PTA现货{pta_spot:.0f}元略高于成本区间({pta_cost_low:.0f}~{pta_cost_high:.0f})，偏离{deviation_pct:.1f}%"
+        cost_level = "成本支撑弱"
+        cost_score = -1
+
+    # Brent定性地缘
     if brent_price > 80:
-        brent_signal = "强势(>80)"
+        brent_text = f"Brent原油期货(近月) ${brent_price}高位，地缘风险溢价显著"
         brent_score = 1
+    elif brent_price > 70:
+        brent_text = f"Brent原油期货(近月) ${brent_price}偏高，成本支撑偏强"
+        brent_score = 0
     elif brent_price < 65:
-        brent_signal = "弱势(<65)"
+        brent_text = f"Brent原油期货(近月) ${brent_price}低位，成本支撑弱"
         brent_score = -1
     else:
-        brent_signal = "中性"
+        brent_text = f"Brent原油期货(近月) ${brent_price}中性"
         brent_score = 0
-    
-    # PTA相对成本的偏离
-    mid_cost = (pta_cost_low + pta_cost_high) / 2
-    偏离 = (pta_spot - mid_cost) / mid_cost * 100
-    
-    if pta_spot < pta_cost_low:
-        pta_signal = f"成本支撑区({偏离:.1f}%)"
-        pta_score = 2
-    elif pta_spot > pta_cost_high + 300:
-        pta_signal = f"高估区({偏离:.1f}%)"
-        pta_score = -2
-    elif 偏离 < 2:
-        pta_signal = f"合理偏低({偏离:.1f}%)"
-        pta_score = 1
-    elif 偏离 > 8:
-        pta_signal = f"溢价偏高({偏离:.1f}%)"
-        pta_score = -1
+
+    result["cost"] = {
+        "text": f"【成本端】Brent ${brent_price}（{brent_text}）；PX {px_price}元/吨 → PTA成本区间 {pta_cost_low:.0f}~{pta_cost_high:.0f}元/吨；当前现货{pta_spot:.0f}元，{cost_text}。",
+        "level": cost_level,
+        "brent_text": brent_text,
+    }
+
+    # ---- 2. 供给端定性 ----
+    supply_factors = []
+    supply_score = 0
+    if news_summary:
+        supply_factors = news_summary.get("supply_factors", [])
+        if "装置检修" in supply_factors or "降负减产" in supply_factors:
+            supply_text = "4月大厂检修计划增多，供应收缩预期升温，PX供应偏紧"
+            supply_score = 1
+        elif "增产" in supply_factors or "重启" in supply_factors:
+            supply_text = "装置重启或增产，供应压力上升"
+            supply_score = -1
+        else:
+            supply_text = f"供给动态：{'、'.join(supply_factors) if supply_factors else '暂无明显变化'}"
+            supply_score = 0
+
+        wr_change = news_summary.get("wr_change")
+        if wr_change is not None:
+            if wr_change < 0:
+                supply_text += f"；仓单减少{abs(wr_change)}张，现货端有支撑"
+            else:
+                supply_text += f"；仓单增加{wr_change}张，库存压力加大"
     else:
-        pta_signal = f"合理区间({偏离:.1f}%)"
-        pta_score = 0
-    
-    total = brent_score + pta_score
-    if total >= 2:
-        label, level = "利多", "+"
-    elif total <= -2:
-        label, level = "利空", "-"
-    elif total == 1:
-        label, level = "轻微利多", "+"
-    elif total == -1:
-        label, level = "轻微利空", "-"
+        supply_text = "供给数据暂缺，需结合检修计划综合判断"
+
+    result["supply"] = {
+        "text": f"【供给端】{supply_text}",
+        "level": "收缩预期" if supply_score > 0 else ("宽松" if supply_score < 0 else "中性"),
+    }
+
+    # ---- 3. 需求端定性 ----
+    demand_score = 0
+    if news_summary:
+        demand_factors = news_summary.get("demand_factors", [])
+        neg_keywords = ["疲软", "羸弱", "负反馈", "开工率下降", "下降", "减少", "订单不足", "跟进慢"]
+        pos_keywords = ["好转", "积极", "改善", "增加", "订单良好"]
+        if demand_factors:
+            demand_text = f"下游：{'、'.join(demand_factors[:3])}"
+            if any(k in str(demand_factors) for k in neg_keywords):
+                demand_score = -1
+                demand_text += "——需求偏弱，对价格形成压制"
+            elif any(k in str(demand_factors) for k in pos_keywords):
+                demand_score = 1
+                demand_text += "——需求改善，支撑价格"
+            else:
+                demand_text += "——需求端暂无明显改善"
+        else:
+            demand_text = "下游需求暂无明显变化"
     else:
-        label, level = "中性", "~"
-    
-    detail = f"布伦特:{brent_signal}, PTA偏离成本:{pta_signal}"
-    return total, label, detail
+        demand_text = "需求数据暂缺"
+        demand_score = 0
+
+    result["demand"] = {
+        "text": f"【需求端】{demand_text}",
+        "level": "偏弱" if demand_score < 0 else ("偏强" if demand_score > 0 else "中性"),
+    }
+
+    # ---- 4. 资金行为定性 ----
+    funds_score = 0
+    if news_summary and news_summary.get("net_position") is not None:
+        net_pos = news_summary["net_position"]
+        long_chg = news_summary.get("long_change")
+        short_chg = news_summary.get("short_change")
+
+        if net_pos < -30000:
+            funds_text = f"前20席净空头{net_pos}手"
+            if short_chg and long_chg:
+                if abs(short_chg) > abs(long_chg):
+                    funds_text += f"（空头加仓{short_chg}手>多头加仓{long_chg}手），空头主导；"
+                else:
+                    funds_text += f"（多头加仓{long_chg}手>空头加仓{short_chg}手），多头主导；"
+            funds_text += f"本质：{'空头回补推动上涨，非真性做多' if net_pos < -20000 else '空头略占优势'}"
+            funds_score = 0 if abs(net_pos) > 20000 else (1 if net_pos > 30000 else -1)
+        elif net_pos > 30000:
+            funds_text = f"前20席净多头{net_pos}手，多头主导"
+            funds_score = 1
+        else:
+            funds_text = f"前20席净持仓{net_pos}手，多空力量接近"
+            funds_score = 0
+
+        result["funds"] = {
+            "text": f"【资金行为】{funds_text}",
+            "level": "空头回补" if net_pos < -20000 else ("多头主导" if net_pos > 20000 else "中性"),
+        }
+    else:
+        result["funds"] = {"text": "【资金行为】持仓数据暂缺", "level": "未知"}
+        funds_score = 0
+
+    # ---- 5. 综合定性 ----
+    all_scores = [cost_score, brent_score, supply_score, demand_score, funds_score]
+    # 资金行为权重更高（基于真实持仓）
+    weighted = cost_score * 0.2 + brent_score * 0.2 + supply_score * 0.15 + demand_score * 0.15 + funds_score * 0.3
+    composite = round(weighted, 1)
+
+    # 核心矛盾描述
+    if funds_score == 0 and (cost_score > 0 or supply_score > 0) and demand_score < 0:
+        core_矛盾 = "成本支撑+供给收缩 vs 需求疲软，空头回补推动上涨，持续性待观察"
+        phase_label = "高位震荡"
+    elif funds_score == 0 and net_pos and net_pos < -30000:
+        core_矛盾 = "空头回补主导行情，本质非基本面驱动做多"
+        phase_label = "空头回补"
+    elif cost_score > 0 and demand_score < 0:
+        core_矛盾 = "成本支撑 vs 需求压制，区间震荡为主"
+        phase_label = "成本-需求博弈"
+    elif demand_score < 0 and supply_score > 0:
+        core_矛盾 = "供给收缩对冲需求疲软"
+        phase_label = "弱平衡"
+    else:
+        core_矛盾 = "多空因素交织，方向不明"
+        phase_label = "中性"
+
+    if composite >= 1.5:
+        final_label = "偏多"
+        final_text = f"综合偏多({composite:+.1f})：{core_矛盾}"
+    elif composite <= -1.5:
+        final_label = "偏空"
+        final_text = f"综合偏空({composite:+.1f})：{core_矛盾}"
+    else:
+        final_label = phase_label
+        final_text = f"综合信号中性({composite:+.1f})：{core_矛盾}"
+
+    result["synthesis"] = {
+        "text": f"【综合定性】{final_text}",
+        "label": final_label,
+        "score": composite,
+        "core_contradiction": core_矛盾,
+    }
+
+    return composite, final_label, result
+
+
+# 兼容旧接口（保留给其他模块调用）
+def get_macro_signal(brent_price, px_price, pta_spot, pta_cost_low, pta_cost_high):
+    score, label, _ = generate_macro_qualitative(brent_price, px_price, pta_spot, pta_cost_low, pta_cost_high, None)
+    return score, label, ""
 
 
 def get_tech_signal(futures_df, spot_df_row):
@@ -382,6 +527,19 @@ def main():
         report['option'] = f"FAIL: {e}"
         print(f"  PTA期权: FAIL {e}")
     
+    # 1.5 宏观新闻
+    print("  宏观新闻采集中...")
+    try:
+        news_list = macro_news.fetch_pta_news(days=3)
+        news_summary = macro_news.generate_macro_summary(news_list) if news_list else None
+        report['news'] = {"count": len(news_list), "summary": news_summary}
+        print(f"  宏观新闻: OK ({len(news_list)}篇)" if news_list else "  宏观新闻: 无相关资讯")
+    except Exception as e:
+        news_list = []
+        news_summary = None
+        report['news'] = f"FAIL: {e}"
+        print(f"  宏观新闻: FAIL {e}")
+    
     print()
     
     # ---- 信号计算 ----
@@ -398,11 +556,19 @@ def main():
     else:
         cost_low = cost_high = None
     
-    m_score, m_label, m_detail = get_macro_signal(brent_price, px_price, ta_spot, cost_low, cost_high)
-    print(f"  宏观信号: {m_label}({m_score})")
-    print(f"    {m_detail}")
-    if cost_low:
-        print(f"    PTA成本区间: {cost_low:.0f}~{cost_high:.0f} | 现货: {ta_spot:.0f}" if ta_spot else "")
+    # 完整定性宏观分析（整合新闻）
+    m_score, m_label, macro_qual = generate_macro_qualitative(
+        brent_price, px_price, ta_spot, cost_low, cost_high, news_summary
+    )
+
+    print(f"  宏观信号: {m_label}({m_score:+.1f})")
+    if cost_low and ta_spot:
+        print(f"  宏观详情:")
+        print(f"    {macro_qual['cost']['text']}")
+        print(f"    {macro_qual['supply']['text']}")
+        print(f"    {macro_qual['demand']['text']}")
+        print(f"    {macro_qual['funds']['text']}")
+        print(f"    {macro_qual['synthesis']['text']}")
     
     # 技术
     t_score, t_label, t_detail = get_tech_signal(ta_df, ta_spot_row)
@@ -430,36 +596,51 @@ def main():
     print(f"    {c_desc}")
     
     # ---- 飞书推送 ----
-    report['macro'] = {'score': m_score, 'label': m_label, 'detail': m_detail}
+    report['macro'] = {'score': m_score, 'label': m_label, 'qualitative': macro_qual}
     report['tech'] = {'score': t_score, 'label': t_label, 'detail': t_detail}
     report['option'] = {'score': o_score, 'label': o_label, 'detail': o_detail}
     report['composite'] = {'score': c_score, 'phase': c_phase, 'desc': c_desc}
     if o_extra:
         report['option_extra'] = o_extra
+    if news_summary:
+        report['news_summary'] = news_summary
     
     # 推送内容
-    emoji = {"偏多信号": "📈", "偏空信号": "📉", "观望": "➡️", "杀期权阶段": "🔪", "狂热顶共振": "🔥", "恐慌底共振": "🧊"}
+    emoji = {"偏多信号": "📈", "偏空信号": "📉", "观望": "➡️", "杀期权阶段": "🔪", "狂热顶共振": "🔥", "恐慌底共振": "🧊", "高位震荡": "🔄", "空头回补": "↗", "成本-需求博弈": "⚖", "弱平衡": "➖"}
     e = emoji.get(c_phase, "📊")
-    
+
+    # 定性宏观摘要（用于推送，限制字数）
+    def q(s):
+        """截取定性文本摘要，保留核心信息"""
+        return s.replace("【成本端】", "▎成本端:").replace("【供给端】", "▎供给:").replace("【需求端】", "▎需求:").replace("【资金行为】", "▎资金:").replace("【综合定性】", "▎综合:")
+
+    macro_text = macro_qual.get("synthesis", {}).get("text", "") if macro_qual else ""
+    cost_text = q(macro_qual.get("cost", {}).get("text", "")) if macro_qual else f"Brent: ${brent_price} | PX: {px_price} | PTA现货: {ta_spot}"
+    supply_text = q(macro_qual.get("supply", {}).get("text", "")) if macro_qual else ""
+    demand_text = q(macro_qual.get("demand", {}).get("text", "")) if macro_qual else ""
+    funds_text = q(macro_qual.get("funds", {}).get("text", "")) if macro_qual else ""
+
     push_text = f"""📊 PTA分析报告 {now.strftime('%m/%d %H:%M')}
 
-🌍 宏观: {m_label}
-   布伦特: ${brent_price} | PX: {px_price} | PTA现货: {ta_spot}
-   成本区间: {cost_low:.0f}~{cost_high:.0f}元/吨
-   {m_detail}
+🌍 宏观: {m_label}({m_score:+.1f})
+{cost_text[:120]}
+{supply_text[:80]}
+{demand_text[:80]}
+{funds_text[:100]}
+{macro_text[:80]}
 
 📈 技术: {t_label}({t_score})
    {t_detail}
 
 🎯 期权: {o_label}({o_score})
-   PCR持仓: {o_extra.get('pcr_oi', 'N/A')}
-   IV: 认购{o_extra.get('call_iv_mean','?')}% / 认沽{o_extra.get('put_iv_mean','?')}%
-   {o_detail}
+   PCR持仓: {o_extra.get('pcr_oi', 'N/A')} | IV: 购{o_extra.get('call_iv_mean','?')}%/沽{o_extra.get('put_iv_mean','?')}%
+   {o_detail[:100]}
 
 {e} 综合: {c_phase}
    {c_desc}
 
-#PTA #期权分析"""
+#PTA #期权分析
+数据来源: 18qh.com | 隆众/卓创/CCF 待接入"""
     
     # 推送飞书
     webhook = FEISHU_WEBHOOK
