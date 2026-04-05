@@ -28,24 +28,36 @@ def get_db():
 
 def init_db():
     conn = get_db()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS signal_log (
+    # 重建signal_log表（新增tech_score列）
+    conn.execute("DROP TABLE IF EXISTS signal_log_new")
+    conn.execute("""
+        CREATE TABLE signal_log_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT, symbol TEXT,
             last_price REAL, pcr REAL, iv REAL,
             cost_low REAL, cost_high REAL,
             brent_usd REAL, px_cny REAL, pta_spot REAL,
-            macro_score INT, signal TEXT
-        );
+            macro_score INT, tech_score INT, signal TEXT, tech_detail TEXT
+        )
+    """)
+    # 如果旧表存在则迁移数据
+    try:
+        conn.execute("""
+            INSERT OR IGNORE INTO signal_log_new
+            SELECT id, created_at, symbol, last_price, pcr, iv,
+                   cost_low, cost_high, brent_usd, px_cny, pta_spot,
+                   macro_score, NULL, signal, NULL
+            FROM signal_log
+        """)
+        conn.execute("DROP TABLE IF EXISTS signal_log")
+    except Exception:
+        pass
+    conn.execute("ALTER TABLE signal_log_new RENAME TO signal_log")
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS brent_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT, price REAL, change_pct REAL
-        );
-        CREATE TABLE IF NOT EXISTS ta_option_contracts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            contract_name TEXT, strike REAL, expiry TEXT,
-            option_type TEXT, last_trade_date TEXT
-        );
+        )
     """)
     conn.commit()
     conn.close()
@@ -298,50 +310,45 @@ async def brent():
 
 @app.get("/api/pta/signal")
 async def signal():
-    """综合信号"""
+    """综合信号 - 三维度分析"""
     cached = get_cache("pta:signal")
     if cached:
         return cached
 
-    quote = get_pta_realtime()
-    cost = await pta_cost()
-    opts = get_ta_options_contracts()
-
-    pta_price = quote["last_price"] if quote else None
-    cost_low = cost.get("pta_cost_low")
-    cost_high = cost.get("pta_cost_high")
-
-    # 从期权合约数据中提取信息
-    pcr = None  # 期权成交PCR暂无法获取
-    iv = None   # IV曲面暂无法获取
-
-    signal_label, score = calc_signal(pta_price, cost_low, cost_high, pcr, iv)
-
-    result = {
-        "signal": signal_label,
-        "score": score,
-        "confidence": "高" if abs(score - 50) > 20 else "中" if abs(score - 50) > 10 else "低",
-        "quote": quote,
-        "cost": cost,
-        "options": {"count": opts["count"] if opts else 0, "expiry": opts.get("expiry") if opts else None},
-        "timestamp": datetime.now().isoformat()
-    }
-
     try:
-        conn = get_db()
-        conn.execute("""
-            INSERT INTO signal_log (created_at, symbol, last_price, cost_low, cost_high,
-                brent_usd, pta_spot, signal)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (datetime.now().isoformat(), "TA", pta_price, cost_low, cost_high,
-              cost.get("brent_usd"), cost.get("pta_spot"), signal_label))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"[WARN] DB写入: {e}")
+        sys.path.insert(0, WORKSPACE)
+        import signal_analyzer as sa
+        result = sa.full_analysis()
+        signal_info = result["signal"]
 
-    set_cache("pta:signal", result, 60)
-    return result
+        # 写入DB
+        try:
+            conn = get_db()
+            conn.execute("""
+                INSERT INTO signal_log (created_at, symbol, last_price, pcr, iv,
+                    cost_low, cost_high, brent_usd, pta_spot,
+                    macro_score, tech_score, signal, tech_detail)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (datetime.now().isoformat(), "TA",
+                  result["quote"]["price"] if result["quote"] else None,
+                  None, None,
+                  result["cost"]["cost_low"], result["cost"]["cost_high"],
+                  result["brent"]["price"] if result["brent"] else None,
+                  result["cost"]["pta_spot"],
+                  signal_info["macro_score"],
+                  signal_info["tech_score"],
+                  signal_info["signal"],
+                  result["tech"]["detail"]))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[WARN] DB写入: {e}")
+
+        set_cache("pta:signal", result, 60)
+        return result
+    except Exception as e:
+        print(f"[ERROR] signal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/history")
 async def history(limit: int = 50):
