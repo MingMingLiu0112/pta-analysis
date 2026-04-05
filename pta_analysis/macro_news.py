@@ -415,5 +415,162 @@ def main():
     return news, summary
 
 
+# ===================== 全球宏观大事件模块 =====================
+
+def fetch_global_macro_events():
+    """
+    从凤凰财经抓取全球宏观大事件
+    分类：地缘风险、美联储/央行、宏观经济数据、市场情绪
+    返回: list of {type, title, url, impact_pta}
+    """
+    url = 'https://finance.ifeng.com/'
+    try:
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml',
+        })
+        with urllib.request.urlopen(req, timeout=12) as r:
+            html = r.read().decode('utf-8', errors='replace')
+    except Exception as e:
+        return [{"type": "error", "title": f"抓取失败: {e}", "url": "", "impact_pta": ""}]
+
+    # 清理
+    html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL)
+    html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL)
+
+    # 提取所有文字链接
+    text_links = re.findall(
+        r'<a[^>]+href="(https?://[^\"]{15,})"[^>]*>(.*?)</a>',
+        html, flags=re.DOTALL
+    )
+
+    # 分类关键词
+    TYPE_KW = {
+        "地缘风险": ["地缘", "制裁", "中东", "俄乌", "红海", "以色列", "伊朗", "霍尔木兹", "胡塞", "袭击", "冲突", "战争", " OPEC", "欧佩克"],
+        "美联储/央行": ["美联储", "降息", "加息", "缩表", "扩表", "央行", "鲍威尔", "利率", "美债", "债券", "流动性"],
+        "宏观经济": ["CPI", "PPI", "GDP", "非农", "就业", "制造业", "PMI", "通胀", "衰退", "经济", "消费", "数据", "褐皮书"],
+        "市场情绪": ["黑天鹅", "灰犀牛", "恐慌", "避险", "美股", "A股", "港股", "大跌", "大涨", "跳水", "飙升", "资金流", "抛售", "涌入"],
+        "贸易/关税": ["关税", "贸易战", "制裁", "出口", "进口", "毛衣", "特朗普"],
+        "大宗商品": ["原油", "黄金", "铜", "铝", "大宗商品", "商品", "油价", "能源"],
+    }
+
+    # PTA影响判断
+    PTA_IMPACT = {
+        "地缘风险": "原油供给担忧，成本推升，利好PTA",
+        "美联储/央行": "降息预期→美元弱→大宗商品强；加息→资金流向美元→大宗弱",
+        "宏观经济": "经济好→需求强→利好PTA；衰退预期→需求弱→利空PTA",
+        "市场情绪": "避险→原油/黄金强；风险偏好→商品强",
+        "贸易/关税": "关税→贸易收缩→商品需求弱→利空；供给制裁→成本升→利好",
+        "大宗商品": "原油/能源涨→PTA成本推升；黄金/铝涨→资金配置变化",
+    }
+
+    results = []
+    seen_titles = set()
+
+    for raw_url, raw_text in text_links:
+        text = re.sub(r'<[^>]+>', '', raw_text).strip()
+        if len(text) < 8 or text in seen_titles:
+            continue
+        seen_titles.add(text)
+
+        for event_type, keywords in TYPE_KW.items():
+            if any(k in text for k in keywords):
+                impact = PTA_IMPACT.get(event_type, "")
+                results.append({
+                    "type": event_type,
+                    "title": text,
+                    "url": raw_url,
+                    "impact_pta": impact,
+                    "datetime": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                })
+                break  # 每个标题只归一类
+
+    # 按类型优先级排序（地缘 > 美联储 > 宏观 > 市场 > 贸易 > 商品）
+    type_order = ["地缘风险", "美联储/央行", "宏观经济", "市场情绪", "贸易/关税", "大宗商品"]
+    results.sort(key=lambda x: type_order.index(x["type"]) if x["type"] in type_order else 99)
+    return results[:12]  # 最多12条
+
+
+def generate_risk_sentiment(events):
+    """
+    基于全球宏观事件判断当前风险情绪
+    """
+    if not events:
+        return None, "无数据"
+
+    type_count = {}
+    for e in events:
+        t = e["type"]
+        type_count[t] = type_count.get(t, 0) + 1
+
+    # 判断逻辑
+    signals = []
+
+    if type_count.get("地缘风险", 0) >= 2:
+        signals.append("地缘风险密集（避险情绪偏强）")
+    elif type_count.get("地缘风险", 0) == 1:
+        signals.append("局部地缘事件（影响待观察）")
+
+    if type_count.get("市场情绪", 0) >= 2:
+        signals.append("市场波动加剧（情绪敏感期）")
+
+    if type_count.get("美联储/央行", 0) >= 1:
+        signals.append("央行政策窗口期（波动放大）")
+
+    # 总体判断
+    risk_score = 0
+    risk_score += type_count.get("地缘风险", 0) * 2
+    risk_score += type_count.get("市场情绪", 0) * 1
+    risk_score += type_count.get("美联储/央行", 0) * 1
+    risk_score -= type_count.get("宏观经济", 0) * 0.5  # 经济数据好可以部分抵消风险
+
+    if risk_score >= 4:
+        sentiment = "风险偏好下降（避险模式）"
+        sentiment_score = -1
+    elif risk_score >= 2:
+        sentiment = "风险偏好谨慎（观望模式）"
+        sentiment_score = -0.5
+    elif risk_score <= -2:
+        sentiment = "风险偏好强（进攻模式）"
+        sentiment_score = 1
+    else:
+        sentiment = "风险偏好中性"
+        sentiment_score = 0
+
+    summary = {
+        "sentiment": sentiment,
+        "sentiment_score": sentiment_score,
+        "event_count": len(events),
+        "type_breakdown": type_count,
+        "signals": signals,
+        "top_events": [e["title"] for e in events[:5]],
+    }
+
+    return sentiment_score, sentiment, summary
+
+
+def fetch_and_analyze_global_macro():
+    """
+    抓取并分析全球宏观大事件
+    """
+    events = fetch_global_macro_events()
+    if not events or (len(events) == 1 and events[0].get("type") == "error"):
+        return None, None, {}
+
+    sentiment_score, sentiment, summary = generate_risk_sentiment(events)
+    return events, sentiment_score, summary
+
+
 if __name__ == "__main__":
-    main()
+    print("=== 全球宏观大事件抓取 ===\n")
+    events = fetch_global_macro_events()
+    if events and events[0].get("type") != "error":
+        sentiment_score, sentiment, summary = generate_risk_sentiment(events)
+        print(f"风险情绪: {sentiment} ({sentiment_score})\n")
+        print("事件摘要:")
+        for e in events:
+            print(f"  [{e['type']}] {e['title']}")
+            print(f"    -> {e['impact_pta']}")
+        print(f"\n关键信号: {summary.get('signals', [])}")
+    else:
+        print("抓取失败")

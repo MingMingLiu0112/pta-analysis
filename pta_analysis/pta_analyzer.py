@@ -527,7 +527,7 @@ def main():
         report['option'] = f"FAIL: {e}"
         print(f"  PTA期权: FAIL {e}")
     
-    # 1.5 宏观新闻
+    # 1.5 宏观新闻（PTA产业相关）
     print("  宏观新闻采集中...")
     try:
         news_list = macro_news.fetch_pta_news(days=3)
@@ -539,6 +539,30 @@ def main():
         news_summary = None
         report['news'] = f"FAIL: {e}"
         print(f"  宏观新闻: FAIL {e}")
+
+    # 1.6 全球宏观大事件（地缘/央行/市场情绪）
+    print("  全球宏观大事件采集中...")
+    try:
+        global_events, global_sentiment_score, global_summary = macro_news.fetch_and_analyze_global_macro()
+        report['global_macro'] = {
+            "event_count": len(global_events) if global_events else 0,
+            "sentiment": global_summary.get("sentiment", "N/A") if global_summary else "N/A",
+            "sentiment_score": global_sentiment_score,
+            "summary": global_summary,
+        }
+        if global_events:
+            print(f"  全球宏观: OK ({len(global_events)}个大事件) | {global_summary.get('sentiment','')}")
+            print(f"    关键事件:")
+            for ev in global_events[:4]:
+                print(f"      [{ev['type']}] {ev['title'][:40]}")
+        else:
+            print("  全球宏观: 无数据")
+    except Exception as e:
+        global_events = None
+        global_sentiment_score = None
+        global_summary = None
+        report['global_macro'] = f"FAIL: {e}"
+        print(f"  全球宏观: FAIL {e}")
     
     print()
     
@@ -569,6 +593,15 @@ def main():
         print(f"    {macro_qual['demand']['text']}")
         print(f"    {macro_qual['funds']['text']}")
         print(f"    {macro_qual['synthesis']['text']}")
+
+    # 全球宏观大事件
+    if global_events:
+        sent = global_summary.get("sentiment", "N/A") if global_summary else "N/A"
+        sent_score = global_sentiment_score or 0
+        print(f"\n  全球宏观: {sent}({sent_score:+.1f})")
+        for ev in global_events[:5]:
+            print(f"    [{ev['type']}] {ev['title'][:50]}")
+            print(f"      → {ev['impact_pta']}")
     
     # 技术
     t_score, t_label, t_detail = get_tech_signal(ta_df, ta_spot_row)
@@ -590,8 +623,10 @@ def main():
         print(f"    认购期权墙: {o_extra.get('call_wall', [])[:2]}")
         print(f"    认沽期权墙: {o_extra.get('put_wall', [])[:2]}")
     
-    # 综合
-    c_score, c_phase, c_desc = composite_signal(m_score, t_score, o_score)
+    # 综合（加入全球风险情绪权重）
+    global_w = 0.3
+    m_score_adjusted = round(m_score + (global_sentiment_score or 0) * global_w, 1)
+    c_score, c_phase, c_desc = composite_signal(m_score_adjusted, t_score, o_score)
     print(f"\n  → 综合判断: {c_phase}({c_score})")
     print(f"    {c_desc}")
     
@@ -620,21 +655,34 @@ def main():
     demand_text = q(macro_qual.get("demand", {}).get("text", "")) if macro_qual else ""
     funds_text = q(macro_qual.get("funds", {}).get("text", "")) if macro_qual else ""
 
+    # 全球宏观大事件（推送摘要）
+    global_block = ""
+    if global_events:
+        sent = global_summary.get("sentiment", "") if global_summary else ""
+        geo_ev = [ev for ev in global_events if ev["type"] == "地缘风险"]
+        fed_ev = [ev for ev in global_events if "美联储" in ev["type"] or "央行" in ev["type"]]
+        top_ev = global_events[:3]
+        ev_lines = [f"  [{ev['type']}] {ev['title'][:35]}" for ev in top_ev]
+        global_block = f"""
+🌐 全球宏观: {sent}
+{chr(10).join(ev_lines)}"""
+
     push_text = f"""📊 PTA分析报告 {now.strftime('%m/%d %H:%M')}
 
 🌍 宏观: {m_label}({m_score:+.1f})
-{cost_text[:120]}
-{supply_text[:80]}
-{demand_text[:80]}
-{funds_text[:100]}
-{macro_text[:80]}
+{cost_text[:100]}
+{supply_text[:70]}
+{demand_text[:70]}
+{funds_text[:80]}
+{macro_text[:70]}
+{global_block}
 
 📈 技术: {t_label}({t_score})
    {t_detail}
 
 🎯 期权: {o_label}({o_score})
    PCR持仓: {o_extra.get('pcr_oi', 'N/A')} | IV: 购{o_extra.get('call_iv_mean','?')}%/沽{o_extra.get('put_iv_mean','?')}%
-   {o_detail[:100]}
+   {o_detail[:80]}
 
 {e} 综合: {c_phase}
    {c_desc}
