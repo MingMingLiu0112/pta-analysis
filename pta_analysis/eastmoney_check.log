@@ -1,0 +1,98 @@
+[2026-04-04 22:48] 开始检测...
+[2026-04-04 22:48] option_current_em(TA): FAIL:TypeError:option_current_em() got an unexpected keyword argument 'symbol'
+[2026-04-04 22:48] option_risk_analysis_em(TA): FAIL:TypeError:option_risk_analysis_em() got an unexpected keyword argument 'symbol'
+[2026-04-04 22:48] 历史统计: 成功率 0
+0/2
+
+[2026-04-04 22:48] 开始检测...
+[2026-04-04 22:48] option_current_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-04 22:48] option_risk_analysis_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-04 22:48] option_value_analysis_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-04 22:48] 历史统计: 成功率 0
+0/5
+
+[2026-04-04 23:00] 开始检测...
+[2026-04-04 23:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-04 23:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-04 23:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-04 23:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 00:00] 开始检测...
+[2026-04-05 00:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 00:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 00:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 00:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 01:00] 开始检测...
+[2026-04-05 01:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 01:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 01:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 01:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 02:00] 开始检测...
+[2026-04-05 02:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 02:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 02:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 02:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 03:00] 开始检测...
+[2026-04-05 03:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 03:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 03:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 03:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 04:00] 开始检测...
+[2026-04-05 04:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 04:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 04:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 04:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 05:00] 开始检测...
+[2026-04-05 05:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 05:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 05:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 05:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 06:00] 开始检测...
+[2026-04-05 06:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 06:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 06:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 06:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 07:00] 开始检测...
+[2026-04-05 07:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 07:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 07:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 07:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 08:00] 开始检测...
+[2026-04-05 08:00] option_current_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 18: python3.11: command not found
+[2026-04-05 08:00] option_risk_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 30: python3.11: command not found
+[2026-04-05 08:00] option_value_analysis_em(): /home/admin/.openclaw/workspace/codeman/pta_analysis/check_eastmoney.sh: line 42: python3.11: command not found
+[2026-04-05 08:00] 历史统计: 成功率 0
+0/5
+
+[2026-04-05 08:54] 开始检测...
+[2026-04-05 08:54] option_current_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-05 08:54] option_risk_analysis_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-05 08:54] option_value_analysis_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-05 08:54] 历史统计: 成功率 0
+0/8
+
+[2026-04-05 09:00] 开始检测...
+[2026-04-05 09:00] option_current_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-05 09:00] option_risk_analysis_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-05 09:00] option_value_analysis_em(): FAIL:ConnectionError:('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+[2026-04-05 09:00] 历史统计: 成功率 0
+0/11
+
+/bin/sh: /home/admin/.openclaw/workspace/codeman/pta_analysis/health_check.sh: Permission denied
