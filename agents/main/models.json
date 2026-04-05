@@ -6,6 +6,40 @@
       "authHeader": true,
       "models": [
         {
+          "id": "MiniMax-M2.7-highspeed",
+          "name": "MiniMax M2.7 Highspeed",
+          "api": "anthropic-messages",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0.3,
+            "output": 1.2,
+            "cacheRead": 0.03,
+            "cacheWrite": 0.12
+          },
+          "contextWindow": 204800,
+          "maxTokens": 8192
+        },
+        {
+          "id": "MiniMax-M2.7",
+          "name": "MiniMax M2.7",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0.3,
+            "output": 1.2,
+            "cacheRead": 0.03,
+            "cacheWrite": 0.12
+          },
+          "contextWindow": 204800,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        },
+        {
           "id": "MiniMax-M2.5-highspeed",
           "name": "MiniMax M2.5 Highspeed",
           "api": "anthropic-messages",
@@ -130,6 +164,40 @@
       "apiKey": "minimax-oauth",
       "api": "anthropic-messages",
       "models": [
+        {
+          "id": "MiniMax-M2.7-highspeed",
+          "name": "MiniMax M2.7 Highspeed",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 204800,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        },
+        {
+          "id": "MiniMax-M2.7",
+          "name": "MiniMax M2.7",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          },
+          "contextWindow": 204800,
+          "maxTokens": 8192,
+          "api": "anthropic-messages"
+        },
         {
           "id": "MiniMax-M2.5",
           "name": "MiniMax M2.5",

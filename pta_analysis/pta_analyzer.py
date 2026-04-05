@@ -559,15 +559,23 @@ def analyze_option_wall(option_df, futures_price=7000):
             })
         return levels
 
+    # 地板三层防线（成本支撑逻辑）
+    # L1: 6600~7000 = 成本支撑区（正常）
+    # L2: 5500~6600 = 成本缓冲带（大资金套保密集区）
+    # L3: 4500~5500 = 深成本防线（极端支撑）
+    # 天花板三层防线（利润锁定逻辑）
+    # L1: 7000~7400 = 近端压力（短期目标）
+    # L2: 7400~8000 = 中端目标（正常利润区）
+    # L3: 8000~8600 = 远端目标（极端目标）
     ceiling_levels = build_levels(ceil_zone, [
-        ('近端压力(7000~7400)', 7000, 7400),
-        ('中端压力(7400~7800)', 7400, 7800),
-        ('远端压力(7800~)', 7800, 9999),
+        ('L1近端7000~7400', 7000, 7400),
+        ('L2中端7400~8000', 7400, 8000),
+        ('L3远端8000~8600', 8000, 8600),
     ])
     floor_levels = build_levels(floor_zone, [
-        ('近端支撑(6500~7000)', 6500, 7000),
-        ('中端支撑(5500~6500)', 5500, 6500),
-        ('深端支撑(4000~5500)', 4000, 5500),
+        ('L1成本6600~7000', 6600, 7000),
+        ('L2缓冲5500~6600', 5500, 6600),
+        ('L3深成本4500~5500', 4500, 5500),
     ])
 
     # 合计
@@ -881,12 +889,12 @@ def main():
         mt = o_result.get('medium_term', {})
         ivs = o_result.get('iv_surface', {})
         print(f"    短期博弈（成交量Top3）:")
-        print(f"      认购: {[(r[0], r[2]) for r in sg.get('top_vol_call', [])]}")
-        print(f"      认沽: {[(r[0], r[2]) for r in sg.get('top_vol_put', [])]}")
+        print(f"      认购: {[(r[0], r[2]) for r in sg.get('top3_vol_call', [])]}")
+        print(f"      认沽: {[(r[0], r[2]) for r in sg.get('top3_vol_put', [])]}")
         print(f"    中期防线（期权墙）:")
-        print(f"      天花板Top3: {[(r[0], f'{r[2]:,}手') for r in mt.get('top5_ceiling', [])[:3]]}")
-        print(f"      地板Top3: {[(r[0], f'{r[2]:,}手') for r in mt.get('top5_floor', [])[:3]]}")
-        print(f"      天花板合计: {mt.get('ceil_zone_total_oi', 0):,}手 | 地板合计: {mt.get('floor_zone_total_oi', 0):,}手 | 梯度比: {mt.get('gradient_ratio', 'N/A')}")
+        print(f"      天花板Top3: {[r['top_contract'] + '(' + str(r['top_oi']) + '手)' for r in mt.get('ceiling_levels', [])[:3]]}")
+        print(f"      地板Top3: {[r['top_contract'] + '(' + str(r['top_oi']) + '手)' for r in mt.get('floor_levels', [])[:3]]}")
+        print(f"      天花板合计: {mt.get('ceil_total_oi', 0):,}手 | 地板合计: {mt.get('floor_total_oi', 0):,}手 | 梯度比: {mt.get('gradient_ratio', 'N/A')}")
         print(f"    IV曲面: 购IV={ivs.get('call_iv_near_atm', '?')}% 沽IV={ivs.get('put_iv_near_atm', '?')}% (差={ivs.get('iv_diff', '?')}%)")
     
     # 综合（加入全球风险情绪权重）
@@ -913,32 +921,47 @@ def main():
     supply_str = supply_block[:100] + ".." if len(supply_block) > 100 else supply_block[:100]
     demand_str = demand_block[:100] + ".." if len(demand_block) > 100 else demand_block[:100]
     tech_str = f"Tech({t_label},{t_score:+d}): {t_detail}" if t_detail else f"Tech: {t_label}({t_score})"
-    
-    # Option block from result
-    oi = o_result
-    pcr_str = oi.get("pcr_vol_display", "N/A") if oi else "N/A"
+
+    # Option block - multi-level gradient structure
+    pcr_str = o_result.get("pcr_vol_display", "N/A") if o_result else "N/A"
     grad_str = str(mt.get("gradient_ratio", "N/A")) if mt.get("gradient_ratio") else "N/A"
     call_iv_str = str(ivs.get("call_iv_near_atm", "?"))
     put_iv_str = str(ivs.get("put_iv_near_atm", "?"))
     iv_diff_str = str(ivs.get("iv_diff", "?"))
-    
-    option_summary = f"Option({o_label},{o_score:+d}): PCR={pcr_str} Grad={grad_str} IV_Call={call_iv_str}% IV_Put={put_iv_str}% Diff={iv_diff_str}%"
-    option_detail = o_detail if o_detail else ""
-    
+
+    # Build ceiling/floor wall multi-level lines
+    ceil_lines = []
+    for lv in mt.get("ceiling_levels", []):
+        ceil_lines.append(f"    [{lv['label']}] OI={lv['oi_total']:,} | {lv['top_contract']}({lv['top_oi']:,}lots IV={lv['top_iv']:.1f}%)")
+    floor_lines = []
+    for lv in mt.get("floor_levels", []):
+        floor_lines.append(f"    [{lv['label']}] OI={lv['oi_total']:,} | {lv['top_contract']}({lv['top_oi']:,}lots IV={lv['top_iv']:.1f}%)")
+
+    option_lines = [
+        f"Option({o_label},{o_score:+d})",
+        f"  PCR(Vol)={pcr_str} | IV_Call={call_iv_str}% IV_Put={put_iv_str}% Diff={iv_diff_str}%",
+        f"  [CEILING WALL - Call Pressure: {mt.get('ceil_total_oi', 0):,}lots Total]",
+    ] + ceil_lines + [
+        f"  [FLOOR WALL - Put Support: {mt.get('floor_total_oi', 0):,}lots Total]",
+    ] + floor_lines + [
+        f"  Gradient(Floor/Ceiling)={grad_str}",
+        f"  {o_detail}",
+    ]
+
     summary_str = f"{e} Summary: {c_phase}({c_score:+d}): {c_desc}"
-    
+
     lines = [
         f"PTA Analysis {now.strftime('%Y-%m-%d %H:%M')}",
-        "=" * 40,
+        "=" * 48,
         f"[1] GLOBAL: {global_block_str}",
         f"[2] INDUSTRY: {cost_str}",
         f"  {supply_str}",
         f"  {demand_str}",
         f"  {funds_block[:100]}",
         f"[3] TECH: {tech_str}",
-        f"[4] OPTION: {option_summary}",
-        f"  {option_detail}",
-        "=" * 40,
+        f"[4] OPTION:",
+    ] + option_lines + [
+        "=" * 48,
         f"[SUMMARY] {summary_str}",
         "#PTA #Options | Sources: 18qh.com + PhoenixFinance",
     ]
