@@ -1,22 +1,8 @@
 #!/usr/bin/env python3
 """
-PTA 缠论线段检测 - 正确版
-核心规则：
-- 反向笔出现时，gap封闭(reversal signal) → 不立即确认
-- 需等下一个反向走势确认：若下一走势不创新高/低，则反转确认，线段结束
-- 若下一走势创新高/低，则反转被拒绝，线段延续
+PTA 缠论线段检测 - 修复XD3版
 
-上行段被下行笔破坏：
-  1. gap封闭：下行笔.low < 前一上行笔.high → reversal signal
-  2. 确认：下一个上行笔是否创新高？
-     - 不新高(≤前高) → 反转确认 → 线段结束于该下行笔的起点
-     - 创新高(>前高) → 反转被拒 → 线段延续
-
-下行段被上行笔破坏：
-  1. gap封闭：上行笔.high > 前一下行笔.low
-  2. 确认：下一个下行笔是否新低？
-     - 不新低(≥前低) → 反转确认
-     - 新低(<前低) → 反转被拒
+关键：反向新段形成后，还必须被破坏，才能确认原段结束
 """
 
 import pandas as pd
@@ -49,8 +35,6 @@ class BiBar:
         self.direction = direction
         self.start = start_p
         self.end = end_p
-        self.high = max(start_p, end_p)
-        self.low = min(start_p, end_p)
 
 
 def get_bi_bars(c):
@@ -67,106 +51,59 @@ def get_bi_bars(c):
 def detect_xd(bi_bars):
     n = len(bi_bars)
     results = []
-
     i = 0
-    while i < n:
-        cur = bi_bars[i]
-        xd_start = i
 
-        # 找下一个反向笔
-        next_idx = None
-        for j in range(i + 1, n):
-            if bi_bars[j].direction != cur.direction:
-                next_idx = j
-                break
-        if next_idx is None:
-            results.append((xd_start, n - 1, cur.direction))
+    while i < n - 2:
+        b0, b1, b2 = bi_bars[i], bi_bars[i+1], bi_bars[i+2]
+        if not (b0.direction != b1.direction and b1.direction != b2.direction):
+            i += 1
+            continue
+
+        seg_start = i
+        seg_dir = b0.direction
+        seg_len = 3
+        last_idx = i + 2
+        j = i + 3
+        destroyed = False
+
+        while j < n:
+            cur = bi_bars[j]
+            if cur.direction != seg_dir:
+                # 反向笔出现
+                if j + 2 < n:
+                    c0, c1, c2 = bi_bars[j], bi_bars[j+1], bi_bars[j+2]
+                    if (c0.direction != c1.direction and c1.direction != c2.direction):
+                        # 可以形成新段，检查是否被破坏
+                        # 需要j+3存在，且下一笔与seg_dir同向（破坏新段）
+                        if j + 3 < n and bi_bars[j+3].direction == seg_dir:
+                            # 新段被破坏，原段结束
+                            results.append((seg_start, last_idx, seg_dir))
+                            i = j
+                            destroyed = True
+                            break
+                        else:
+                            # 新段未被破坏，原段继续
+                            last_idx = j
+                            seg_len += 1
+                            j += 1
+                    else:
+                        last_idx = j
+                        seg_len += 1
+                        j += 1
+                else:
+                    last_idx = j
+                    seg_len += 1
+                    j += 1
+            else:
+                last_idx = j
+                seg_len += 1
+                j += 1
+
+        if not destroyed:
+            remaining = n - seg_start
+            if remaining >= 3:
+                results.append((seg_start, n - 1, seg_dir))
             break
-
-        next_bi = bi_bars[next_idx]
-
-        if cur.direction == 'up' and next_bi.direction == 'down':
-            # ===== 上行段末尾出现下行笔 =====
-            # 找前一上行笔（用于gap判断）
-            prev_up_idx = None
-            for k in range(next_idx - 1, -1, -1):
-                if bi_bars[k].direction == 'up':
-                    prev_up_idx = k
-                    break
-
-            if prev_up_idx is not None:
-                prev_up_high = bi_bars[prev_up_idx].high
-                gap_closed = next_bi.low < prev_up_high  # reversal signal
-
-                print(f"\n候选 bi{next_idx+1}(dn): gap={gap_closed}")
-
-                if gap_closed:
-                    # 找下一个上行笔（确认走势）
-                    confirm_idx = None
-                    for j in range(next_idx + 1, n):
-                        if bi_bars[j].direction == 'up':
-                            confirm_idx = j
-                            break
-
-                    if confirm_idx is not None:
-                        confirm = bi_bars[confirm_idx]
-                        # 确认：下一个上行笔是否创新高？
-                        if confirm.end <= prev_up_high:
-                            # 不新高 → 反转确认！
-                            results.append((xd_start, next_idx, 'up'))
-                            print(f"  ✓ 反转确认! bi{xd_start+1}~bi{next_idx+1} "
-                                  f"(bi{confirm_idx+1}不新高{confirm.end:.0f}≤{prev_up_high:.0f})")
-                            i = next_idx
-                            continue
-                        else:
-                            # 创新高 → 反转被拒，线段延续
-                            print(f"  ✗ 反转被拒(bi{confirm_idx+1}新高{confirm.end:.0f}>{prev_up_high:.0f})，延续")
-                    else:
-                        # 没有下一个上行笔 → 反转自动确认！
-                        results.append((xd_start, next_idx, 'up'))
-                        print(f"  ✓ 反转确认(无确认走势)! bi{xd_start+1}~bi{next_idx+1}")
-                        i = next_idx
-                        continue
-
-        elif cur.direction == 'down' and next_bi.direction == 'up':
-            # ===== 下行段末尾出现上行笔 =====
-            prev_dn_idx = None
-            for k in range(next_idx - 1, -1, -1):
-                if bi_bars[k].direction == 'down':
-                    prev_dn_idx = k
-                    break
-
-            if prev_dn_idx is not None:
-                prev_dn_low = bi_bars[prev_dn_idx].low
-                gap_closed = next_bi.high > prev_dn_low
-
-                print(f"\n候选 bi{next_idx+1}(up): gap={gap_closed}")
-
-                if gap_closed:
-                    confirm_idx = None
-                    for j in range(next_idx + 1, n):
-                        if bi_bars[j].direction == 'down':
-                            confirm_idx = j
-                            break
-
-                    if confirm_idx is not None:
-                        confirm = bi_bars[confirm_idx]
-                        if confirm.end >= prev_dn_low:
-                            # 不新低 → 反转确认！
-                            results.append((xd_start, next_idx, 'down'))
-                            print(f"  ✓ 反转确认! bi{xd_start+1}~bi{next_idx+1} "
-                                  f"(bi{confirm_idx+1}不新低{confirm.end:.0f}≥{prev_dn_low:.0f})")
-                            i = next_idx
-                            continue
-                        else:
-                            print(f"  ✗ 反转被拒(bi{confirm_idx+1}新低{confirm.end:.0f}<{prev_dn_low:.0f})，延续")
-                    else:
-                        results.append((xd_start, next_idx, 'down'))
-                        print(f"  ✓ 反转确认(无确认走势)! bi{xd_start+1}~bi{next_idx+1}")
-                        i = next_idx
-                        continue
-
-        i = next_idx
 
     return results
 
@@ -179,9 +116,26 @@ def main():
     print("=" * 60)
     print("PTA 4月3日 缠论线段检测")
     print("=" * 60)
-    print(f"\n笔序列 ({len(bi_bars)}笔):")
     for b in bi_bars:
-        print(f"  bi{b.bi_idx+1:2d} {b.direction:4s} [{b.dt.strftime('%H:%M')}] "
-              f"start={b.start:.0f} end={b.end:.0f}")
+        print(f"  bi{b.bi_idx+1:2d} {b.direction:4s} [{b.dt.strftime('%H:%M')}] {b.start:.0f} → {b.end:.0f}")
 
-    print("\n" + "=" * 60
+    print()
+    results = detect_xd(bi_bars)
+
+    print(f"检测结果: {len(results)}条线段")
+    for r in results:
+        s = bi_bars[r[0]]
+        e = bi_bars[r[1]]
+        n_bi = r[1] - r[0] + 1
+        print(f"  {r[2]:4s}  bi{r[0]+1}~bi{r[1]+1}  ({n_bi}笔)  "
+              f"[{s.dt.strftime('%H:%M')}~{e.dt.strftime('%H:%M')}]  "
+              f"{s.start:.0f} → {e.end:.0f}")
+
+    print("\n用户确认:")
+    print("  XD1↑ bi1~3 [09:01~09:58] 6726→6922")
+    print("  XD2↓ bi4~6 [09:58~10:35] 6922→6810")
+    print("  XD3↑ bi7~16 [10:35~14:54] 6810→6948")
+
+
+if __name__ == '__main__':
+    main()
