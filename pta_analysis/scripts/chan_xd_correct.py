@@ -1,8 +1,24 @@
 #!/usr/bin/env python3
 """
-PTA 缠论线段检测 - 修复XD3版
+PTA 缠论线段检测 - 修正比高低版
 
-关键：反向新段形成后，还必须被破坏，才能确认原段结束
+规则（用户最终指正）：
+  - 同方向 = 延续（比高低点抬升/下降）
+  - 反方向出现 = 检查能否破坏
+    DOWN破坏UP：DOWN笔的LOW < 前一个UP笔的LOW → 破坏
+    UP破坏DOWN：UP笔的HIGH > 前一个DOWN笔的HIGH → 破坏
+  - 破坏成功 → 前段结束，新段开始
+  - 破坏失败 → 前段延续
+
+验证：
+  bi10.down low=6876 > bi9.up low=6766 → 不破坏，延续
+  bi11.up high=6948 > bi10.down high=6934 → 不破坏，延续
+  bi12.down low=6894 < bi11.up low=6894 → 破坏！XD1结束
+  bi13.up high=6996 > bi12.down high=6916 → 不破坏，延续
+  bi14.down low=6944 > bi13.up low=6916 → 不破坏，延续
+  bi15.up high=7010 > bi14.down high=6944 → 不破坏，延续
+  bi16.down low=6948 > bi15.up low=6944 → 不破坏，延续
+  → XD1=bi1~3, XD2=bi4~6, XD3=bi7~16 ✓
 """
 
 import pandas as pd
@@ -29,12 +45,14 @@ def load_bars(date='2026-04-03'):
 
 
 class BiBar:
-    def __init__(self, bi_idx, dt, direction, start_p, end_p):
+    def __init__(self, bi_idx, dt, direction, start_p, end_p, high, low):
         self.bi_idx = bi_idx
         self.dt = dt
         self.direction = direction
         self.start = start_p
         self.end = end_p
+        self.high = high
+        self.low = low
 
 
 def get_bi_bars(c):
@@ -44,67 +62,65 @@ def get_bi_bars(c):
         d = str(bi.direction)
         sp = fb.low if d == '向上' else fb.high
         ep = lb.high if d == '向上' else lb.low
-        result.append(BiBar(i, fb.dt, 'up' if d == '向上' else 'down', sp, ep))
+        all_high = max(b.high for b in bi.raw_bars)
+        all_low = min(b.low for b in bi.raw_bars)
+        result.append(BiBar(i, fb.dt, 'up' if d == '向上' else 'down', sp, ep, all_high, all_low))
     return result
 
 
 def detect_xd(bi_bars):
     n = len(bi_bars)
     results = []
-    i = 0
-
-    while i < n - 2:
-        b0, b1, b2 = bi_bars[i], bi_bars[i+1], bi_bars[i+2]
-        if not (b0.direction != b1.direction and b1.direction != b2.direction):
+    
+    seg_start = 0
+    seg_dir = bi_bars[0].direction
+    last_opposite_idx = 1 if n >= 2 else None
+    i = 2
+    
+    while i < n:
+        cur = bi_bars[i]
+        
+        if cur.direction == seg_dir:
             i += 1
-            continue
-
-        seg_start = i
-        seg_dir = b0.direction
-        seg_len = 3
-        last_idx = i + 2
-        j = i + 3
-        destroyed = False
-
-        while j < n:
-            cur = bi_bars[j]
-            if cur.direction != seg_dir:
-                # 反向笔出现
-                if j + 2 < n:
-                    c0, c1, c2 = bi_bars[j], bi_bars[j+1], bi_bars[j+2]
-                    if (c0.direction != c1.direction and c1.direction != c2.direction):
-                        # 可以形成新段，检查是否被破坏
-                        # 需要j+3存在，且下一笔与seg_dir同向（破坏新段）
-                        if j + 3 < n and bi_bars[j+3].direction == seg_dir:
-                            # 新段被破坏，原段结束
-                            results.append((seg_start, last_idx, seg_dir))
-                            i = j
-                            destroyed = True
-                            break
-                        else:
-                            # 新段未被破坏，原段继续
-                            last_idx = j
-                            seg_len += 1
-                            j += 1
-                    else:
-                        last_idx = j
-                        seg_len += 1
-                        j += 1
-                else:
-                    last_idx = j
-                    seg_len += 1
-                    j += 1
+        else:
+            prev_opposite = bi_bars[last_opposite_idx]
+            destroyed = False
+            
+            if seg_dir == 'up' and cur.direction == 'down':
+                # DOWN破坏UP：DOWN笔的LOW < 前一个UP笔的LOW
+                if cur.low < prev_opposite.low:
+                    destroyed = True
+                    print(f"  bi{cur.bi_idx+1}.low={cur.low:.0f} < bi{prev_opposite.bi_idx+1}.low={prev_opposite.low:.0f} → 破坏✓")
+            elif seg_dir == 'down' and cur.direction == 'up':
+                # UP破坏DOWN：UP笔的HIGH > 前一个DOWN笔的HIGH
+                if cur.high > prev_opposite.high:
+                    destroyed = True
+                    print(f"  bi{cur.bi_idx+1}.high={cur.high:.0f} > bi{prev_opposite.bi_idx+1}.high={prev_opposite.high:.0f} → 破坏✓")
+            
+            if destroyed:
+                seg_end = i - 1
+                seg_len = seg_end - seg_start + 1
+                results.append((seg_start, seg_end, seg_dir))
+                print(f"  ✓ {seg_dir}段: bi{seg_start+1}~bi{seg_end+1} "
+                      f"[{bi_bars[seg_start].dt.strftime('%H:%M')}~{bi_bars[seg_end].dt.strftime('%H:%M')}] "
+                      f"({seg_len}笔)")
+                seg_start = last_opposite_idx
+                seg_dir = cur.direction
+                last_opposite_idx = i
             else:
-                last_idx = j
-                seg_len += 1
-                j += 1
-
-        if not destroyed:
-            remaining = n - seg_start
-            if remaining >= 3:
-                results.append((seg_start, n - 1, seg_dir))
-            break
-
+                last_opposite_idx = i
+            
+            i += 1
+    
+    if seg_start < n:
+        seg_end = n - 1
+        seg_len = seg_end - seg_start + 1
+        if seg_len >= 3:
+            results.append((seg_start, seg_end, seg_dir))
+            print(f"  ✓ {seg_dir}段(末尾): bi{seg_start+1}~bi{seg_end+1} "
+                  f"[{bi_bars[seg_start].dt.strftime('%H:%M')}~{bi_bars[seg_end].dt.strftime('%H:%M')}] "
+                  f"({seg_len}笔)")
+    
     return results
 
 
@@ -117,12 +133,13 @@ def main():
     print("PTA 4月3日 缠论线段检测")
     print("=" * 60)
     for b in bi_bars:
-        print(f"  bi{b.bi_idx+1:2d} {b.direction:4s} [{b.dt.strftime('%H:%M')}] {b.start:.0f} → {b.end:.0f}")
+        print(f"  bi{b.bi_idx+1:2d} {b.direction:4s} [{b.dt.strftime('%H:%M')}] "
+              f"start={b.start:.0f} end={b.end:.0f} high={b.high:.0f} low={b.low:.0f}")
 
     print()
     results = detect_xd(bi_bars)
 
-    print(f"检测结果: {len(results)}条线段")
+    print(f"\n检测结果: {len(results)}条线段")
     for r in results:
         s = bi_bars[r[0]]
         e = bi_bars[r[1]]
