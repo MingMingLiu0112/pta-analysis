@@ -7,13 +7,10 @@
       "key": "sk-cp-ZypYaaIG909Bwzg6A9JxsosMg7hRk3cu4X8Z24ujB_nmqJz_J6X5XfuWQ5eiS8uAb8_StR8qXTw5c6n0szGA01VU-kmZALANFpOVh3EHD9pbCDbIEaQDnbk"
     }
   },
-  "lastGood": {
-    "minimax": "minimax:default"
-  },
   "usageStats": {
     "minimax:default": {
       "errorCount": 0,
-      "lastUsed": 1775402558438
+      "lastUsed": 1775443785146
     }
   }
 }
